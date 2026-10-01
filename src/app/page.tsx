@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Camera,
   Check,
@@ -28,9 +29,10 @@ import { LogoMeet } from "@/components/LogoMeet";
 import { Reveal } from "@/components/Reveal";
 import { RotatingWord } from "@/components/RotatingWord";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useAppData } from "@/lib/data";
+import { homeFor, useAppData } from "@/lib/data";
+import { startDemo } from "@/lib/store";
 
-// The front door: what Second is, then "Get started" goes to the mode picker at /start.
+// The front door: what Second is. "Get started" makes an account; "Try the demo" needs none.
 
 const madeFor = [
   "massage therapists",
@@ -83,7 +85,12 @@ const promises: { title: string; text: string; icon: LucideIcon }[] = [
 
 export default function HomePage() {
   const data = useAppData();
-  const home = data?.business ? (data.mode === "running" ? "/app" : "/launch") : null;
+  const router = useRouter();
+  const home = data?.account ? homeFor(data) : null;
+  const tryDemo = async () => {
+    await startDemo();
+    router.push("/start");
+  };
 
   return (
     <div className="min-h-screen overflow-x-clip bg-paper text-ink">
@@ -105,12 +112,18 @@ export default function HomePage() {
             </a>
           </nav>
           <div className="ml-auto flex items-center gap-2">
-            {home && (
+            {home ? (
               <Button href={home} variant="ghost" weight="medium" pad="tight" className="max-sm:hidden">
-                Open my dashboard
+                {data?.account?.kind === "demo" ? "Back to the demo" : "Open my dashboard"}
+              </Button>
+            ) : (
+              <Button href="/login" variant="ghost" weight="medium" pad="tight">
+                Log in
               </Button>
             )}
-            <Button href="/start">Get started</Button>
+            <Button href="/signup" className="max-sm:hidden">
+              Get started
+            </Button>
           </div>
         </div>
       </header>
@@ -132,7 +145,7 @@ export default function HomePage() {
               anything goes out.
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <Button href="/start" size="lg" arrow>
+              <Button href="/signup" size="lg" arrow>
                 Get started
               </Button>
               {home ? (
@@ -140,12 +153,12 @@ export default function HomePage() {
                   Continue where I left off
                 </Button>
               ) : (
-                <Button href="#how" size="lg" variant="ghost" weight="medium">
-                  See how it works
+                <Button size="lg" variant="ghost" weight="medium" onClick={tryDemo}>
+                  Try the demo
                 </Button>
               )}
             </div>
-            <p className="m-0 text-sm text-muted">Free to try. No sign-up needed.</p>
+            <p className="m-0 text-sm text-muted">Free to try. The demo needs no account.</p>
           </div>
 
           <HomeDemo />
@@ -278,9 +291,14 @@ export default function HomePage() {
             <p className="m-0 max-w-[520px] text-lg leading-normal text-on-dark">
               Answer a few questions and Second will have your plan ready in about two minutes.
             </p>
-            <Button href="/start" size="lg" variant="mint" arrow>
-              Get started
-            </Button>
+            <div className="flex flex-wrap justify-center gap-3">
+              <Button href="/signup" size="lg" variant="mint" arrow>
+                Get started
+              </Button>
+              <Button size="lg" variant="ghost-dark" weight="medium" onClick={tryDemo}>
+                Try the demo
+              </Button>
+            </div>
           </Reveal>
         </section>
       </main>

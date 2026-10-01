@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Check, Sprout, Store } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Logo } from "@/components/Logo";
+import { TextLink } from "@/components/TextLink";
+import { RequireAccount, useAppData } from "@/lib/data";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useMode } from "@/lib/mode";
 
@@ -32,7 +34,16 @@ const choices = [
 ] as const;
 
 export default function StartPage() {
+  return (
+    <RequireAccount>
+      <ModePicker />
+    </RequireAccount>
+  );
+}
+
+function ModePicker() {
   const { setMode } = useMode();
+  const demo = useAppData()?.account?.kind === "demo";
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-paper px-4 py-10 desk:px-6 desk:py-12">
@@ -89,6 +100,12 @@ export default function StartPage() {
       <p className="mt-8 mb-0 text-center text-[15px] text-muted">
         You can switch anytime. When you launch, Second moves everything you built into Running mode.
       </p>
+      {demo && (
+        <p className="mt-4 mb-0 rounded-row bg-sky-tint px-4 py-3 text-center text-[15px] text-sky-ink">
+          You&apos;re trying the demo. Nothing is saved to an account.{" "}
+          <TextLink href="/signup">Create an account</TextLink>
+        </p>
+      )}
 
       <ThemeToggle tone="page" className="mt-8 w-[260px] max-w-full" />
     </div>

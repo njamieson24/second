@@ -22,7 +22,7 @@ import { Logo } from "@/components/Logo";
 import { LogoMeet } from "@/components/LogoMeet";
 import { ProgressBar } from "@/components/ProgressBar";
 import { businessTypes, getBusinessType, type BusinessType } from "@/lib/business-types";
-import { useAppData } from "@/lib/data";
+import { RequireAccount, useAppData } from "@/lib/data";
 import { addDays, todayISO } from "@/lib/dates";
 import { onboardingTaskIds } from "@/lib/roadmap";
 import {
@@ -62,6 +62,14 @@ type Draft = {
 const STEPS = ["name", "type", "area", "services", "prices", "goal"] as const;
 
 export default function SetupPage() {
+  return (
+    <RequireAccount>
+      <Setup />
+    </RequireAccount>
+  );
+}
+
+function Setup() {
   const data = useAppData();
   const router = useRouter();
   const noMode = data !== null && !data.mode;

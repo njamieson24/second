@@ -1,20 +1,24 @@
 "use client";
 
-// Loads saved data from store.ts once, keeps it in React state, and reloads
-// whenever the store says something changed. Pages read data from here and
-// write through the store's functions.
+// Loads saved data from store.ts, keeps it in React state, and reloads whenever
+// the store says something changed (including signing in or out). Pages read
+// data from here and write through the store's functions.
 
 import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { getBusinessType, type BusinessTypeInfo } from "./business-types";
 import { roadmapProgress, type RoadmapProgress } from "./roadmap";
 import {
+  getAccount,
   getBusiness,
   getMode,
   getMoneyPlan,
   getTasks,
   getTransactions,
+  onSaveError,
   subscribe,
+  type Account,
   type Business,
   type Mode,
   type MoneyPlan,
@@ -22,6 +26,8 @@ import {
 } from "./store";
 
 export type AppData = {
+  /** null = not signed in and not trying the demo */
+  account: Account | null;
   business: Business | null;
   mode: Mode | null;
   completedTasks: string[];
@@ -29,9 +35,15 @@ export type AppData = {
   transactions: Transaction[];
 };
 
-const DataContext = createContext<AppData | null>(null);
+type DataState = { data: AppData | null; loadFailed: boolean };
+
+const DataContext = createContext<DataState>({ data: null, loadFailed: false });
 
 async function loadAll(): Promise<AppData> {
+  const account = await getAccount();
+  if (!account) {
+    return { account, business: null, mode: null, completedTasks: [], moneyPlan: null, transactions: [] };
+  }
   const [business, mode, completedTasks, moneyPlan, transactions] = await Promise.all([
     getBusiness(),
     getMode(),
@@ -39,38 +51,71 @@ async function loadAll(): Promise<AppData> {
     getMoneyPlan(),
     getTransactions(),
   ]);
-  return { business, mode, completedTasks, moneyPlan, transactions };
+  return { account, business, mode, completedTasks, moneyPlan, transactions };
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AppData | null>(null);
+  const [state, setState] = useState<DataState>({ data: null, loadFailed: false });
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
+    let latest = 0;
     const refresh = () => {
-      loadAll().then((next) => {
-        if (alive) setData(next);
-      });
+      const run = ++latest;
+      loadAll().then(
+        (data) => {
+          // Ignore an older load that finishes after a newer one.
+          if (alive && run === latest) setState({ data, loadFailed: false });
+        },
+        (error) => {
+          console.error("Second could not load data:", error);
+          if (alive && run === latest) setState((s) => ({ ...s, loadFailed: true }));
+        },
+      );
     };
     refresh();
     const unsubscribe = subscribe(refresh);
+    const unsubscribeErrors = onSaveError(setSaveError);
     return () => {
       alive = false;
       unsubscribe();
+      unsubscribeErrors();
     };
   }, []);
 
   // Keep the pre-paint mode attribute in step with saved data.
+  const mode = state.data?.mode;
   useEffect(() => {
-    if (data?.mode) document.documentElement.dataset.mode = data.mode;
-  }, [data?.mode]);
+    if (mode) document.documentElement.dataset.mode = mode;
+  }, [mode]);
 
-  return <DataContext.Provider value={data}>{children}</DataContext.Provider>;
+  return (
+    <DataContext.Provider value={state}>
+      {children}
+      {saveError && (
+        <div
+          role="alert"
+          className="fixed inset-x-4 bottom-4 z-50 mx-auto flex max-w-[560px] items-center gap-3 rounded-row border border-line-strong bg-card px-4 py-3 text-[15px] text-ink shadow-xl"
+        >
+          <span className="flex-1">{saveError}</span>
+          <button
+            type="button"
+            onClick={() => setSaveError(null)}
+            aria-label="Close this message"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-line-soft hover:text-ink"
+          >
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+    </DataContext.Provider>
+  );
 }
 
 /** All saved data, or null while it's still loading. */
 export function useAppData(): AppData | null {
-  return useContext(DataContext);
+  return useContext(DataContext).data;
 }
 
 export type LoadedData = AppData & { business: Business; moneyPlan: MoneyPlan; typeInfo: BusinessTypeInfo };
@@ -92,22 +137,68 @@ export function useRoadmap(): RoadmapProgress {
   return roadmapProgress(business.type, completedTasks);
 }
 
-/** Shows a quiet loading screen, and sends people without a profile to /start. */
-export function RequireBusiness({ children }: { children: React.ReactNode }) {
-  const data = useAppData();
+function StatusScreen({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-paper px-4 text-center text-muted" role="status">
+      {children}
+    </div>
+  );
+}
+
+function LoadFailed() {
+  return (
+    <StatusScreen>
+      <p className="m-0 max-w-sm text-[17px]">We couldn&apos;t load your business. Check your internet connection.</p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="inline-flex min-h-11 items-center rounded-full bg-sky px-5 text-[15px] font-semibold text-on-sky hover:bg-sky-ink"
+      >
+        Try again
+      </button>
+    </StatusScreen>
+  );
+}
+
+/** For pages that need someone signed in (or trying the demo). Sends everyone else to /login. */
+export function RequireAccount({ children }: { children: React.ReactNode }) {
+  const { data, loadFailed } = useContext(DataContext);
   const router = useRouter();
-  const missing = data !== null && !data.business;
+  const signedOut = data !== null && !data.account;
 
   useEffect(() => {
-    if (missing) router.replace("/start");
-  }, [missing, router]);
+    if (signedOut) router.replace("/login");
+  }, [signedOut, router]);
 
+  if (loadFailed && !data) return <LoadFailed />;
+  if (!data?.account) return <StatusScreen>{signedOut ? "Please log in first…" : "Loading…"}</StatusScreen>;
+  return <>{children}</>;
+}
+
+/** Shows a quiet loading screen, sends signed-out people to /login and people without a profile to /start. */
+export function RequireBusiness({ children }: { children: React.ReactNode }) {
+  const { data, loadFailed } = useContext(DataContext);
+  const router = useRouter();
+  const target = data === null ? null : !data.account ? "/login" : !data.business ? "/start" : null;
+
+  useEffect(() => {
+    if (target) router.replace(target);
+  }, [target, router]);
+
+  if (loadFailed && !data) return <LoadFailed />;
   if (!data?.business) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-paper text-muted" role="status">
-        {missing ? "Let's set up your business first…" : "Loading…"}
-      </div>
+      <StatusScreen>
+        {target === "/login" ? "Please log in first…" : target === "/start" ? "Let's set up your business first…" : "Loading…"}
+      </StatusScreen>
     );
   }
   return <>{children}</>;
+}
+
+/** Where someone's home is: their dashboard, their launch plan, or setup. */
+export function homeFor(data: AppData | null): string {
+  if (!data?.account) return "/login";
+  if (!data.business) return "/start";
+  return data.mode === "running" ? "/app" : "/launch";
 }

@@ -7,16 +7,21 @@ Read @docs/PRODUCT.md for what we're building and @docs/DESIGN.md for how it mus
 ## Two modes (core concept)
 - **Launch mode**: for people who haven't opened yet. Roadmap to opening day, money plan, brand kit.
 - **Running mode**: for people already in business. Weekly game plan, outreach, money tracking, content.
-- `/` is the intro page (what Second is). Its "Get started" goes to `/start`, where users pick a mode, then `/start/setup` asks a few questions. Finishing Launch mode "graduates" them to Running mode and carries their data over.
+- `/` is the intro page (what Second is). "Get started" goes to `/signup`; "Try the demo" needs no account. Then `/start` (pick a mode) and `/start/setup` (a few questions). Finishing Launch mode "graduates" them to Running mode and carries their data over.
 
 ## Stack
 - Next.js (App Router) + TypeScript + Tailwind CSS
 - Font: Outfit (via `next/font/google`). Icons: `lucide-react`.
-- Saved data (business profile, mode, roadmap progress, money plan, money entries) lives in the browser for now. No database, auth, or AI calls until a later phase says so.
-- IMPORTANT: `src/lib/store.ts` is the ONLY file that saves or loads data. Its functions are async so it can be swapped for a real database later. Pages read data through `src/lib/data.tsx` (`useLoadedData`, `useRoadmap`) and write by calling store functions. Pages never touch localStorage. (Exceptions: the before-paint script in `src/lib/boot.ts`, and the light/dark choice in `src/lib/theme.tsx`, which is a device setting, not business data.)
+- Accounts and data: Supabase (email + password login, Postgres). Tables and row level security are in `supabase/schema.sql`. No AI calls until a later phase says so.
+- "Try the demo" keeps the old behavior: data stays in this browser (localStorage), no account.
+- IMPORTANT: `src/lib/store.ts` is the ONLY file that saves or loads data, and the only one that signs people in or out. It picks the backend: `store-supabase.ts` when signed in, `store-local.ts` in the demo. Pages read data through `src/lib/data.tsx` (`useLoadedData`, `useRoadmap`, `RequireAccount`, `RequireBusiness`) and write by calling store functions. Pages never touch localStorage or Supabase directly. (Exceptions: the before-paint script in `src/lib/boot.ts`, and the light/dark choice in `src/lib/theme.tsx`, which is a device setting, not business data.)
+- Supabase keys live in `.env.local` (git-ignored; see `.env.local.example`). Only the PUBLISHABLE key goes in the app. NEVER use the secret / service_role key in browser code, and never commit keys or test passwords.
+- REMINDER: "Confirm email" is turned OFF in Supabase (Authentication > Sign In / Providers > Email) to make testing easy. Turn it back ON before real customers use the app. The sign-up page already handles it ("Check your email").
+- Before real customers: also set the real Site URL and Redirect URLs in Authentication > URL Configuration, and set up a custom email sender (Supabase's built-in one only sends a few emails per hour).
 - Roadmap stages and tasks: `src/lib/roadmap.ts`. Business types, suggested services, prices and costs: `src/lib/business-types.ts`. Money math: `src/lib/money.ts`.
 - `src/lib/mock-data.ts` now only holds sample content for features that need AI or outside services (game plan, outreach, content posts, chat, schedule, tips).
-- `/settings` has "Reset demo data" to start over.
+- `/settings` shows the account (Log out) or the demo (Create an account / Leave the demo), and "Start over" (deletes business data, keeps the login).
+- Test accounts made by automated tests use `second-test-<number>@example.com`. Delete them with `supabase/delete-test-accounts.sql`.
 
 ## Commands
 - `npm run dev` : start the app at localhost:3000
