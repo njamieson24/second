@@ -1,0 +1,172 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
+import { Button } from "./Button";
+import { Field, inputClass, MoneyInput } from "./Field";
+import { todayISO } from "@/lib/dates";
+import { addTransaction, type Transaction } from "@/lib/store";
+
+export type MoneyKind = Transaction["kind"];
+
+/** Pop-up form to log money coming in or going out. */
+export function AddMoneyDialog({
+  kind,
+  incomeCategory,
+  onClose,
+}: {
+  /** null = closed */
+  kind: MoneyKind | null;
+  /** What a paid visit is called for this business, like "Session" */
+  incomeCategory: string;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (kind && !dialog.open) dialog.showModal();
+    if (!kind && dialog.open) dialog.close();
+  }, [kind]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby="add-money-title"
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="m-auto w-[min(520px,calc(100vw-32px))] rounded-card border border-line bg-card p-0 text-ink backdrop:bg-black/50"
+    >
+      {kind && <MoneyForm key={kind} kind={kind} incomeCategory={incomeCategory} onClose={onClose} />}
+    </dialog>
+  );
+}
+
+function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKind; incomeCategory: string; onClose: () => void }) {
+  const [kind, setKind] = useState<MoneyKind>(startKind);
+  const [amount, setAmount] = useState(0);
+  const [label, setLabel] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const categories =
+    kind === "income"
+      ? [incomeCategory, "Gift card", "Tip", "Other"]
+      : ["Supplies", "Rent", "Ads", "Insurance", "Apps", "Other"];
+  const [category, setCategory] = useState(categories[0]);
+  const [saving, setSaving] = useState(false);
+  const canSave = amount > 0 && label.trim().length > 0 && date.length === 10;
+
+  const switchKind = (next: MoneyKind) => {
+    setKind(next);
+    setCategory(next === "income" ? incomeCategory : "Supplies");
+  };
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSave) return;
+    setSaving(true);
+    await addTransaction({ kind, amount, label: label.trim(), category, date });
+    onClose();
+  }
+
+  return (
+    <form onSubmit={save} className="flex flex-col gap-5 p-6">
+      <div className="flex items-center justify-between gap-3">
+        <h2 id="add-money-title" className="m-0 text-[22px] font-semibold">
+          {kind === "income" ? "Add money in" : "Add money out"}
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex size-11 items-center justify-center rounded-full text-muted hover:bg-line-soft hover:text-ink"
+        >
+          <X size={20} aria-hidden="true" />
+        </button>
+      </div>
+
+      <div role="radiogroup" aria-label="Money in or out" className="grid grid-cols-2 gap-1 rounded-xl bg-line-soft p-1">
+        {(["income", "expense"] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={kind === k}
+            onClick={() => switchKind(k)}
+            className={`min-h-11 rounded-lg text-[15px] ${kind === k ? "bg-card font-semibold text-ink shadow-sm" : "text-muted hover:text-ink"}`}
+          >
+            {k === "income" ? "Money in" : "Money out"}
+          </button>
+        ))}
+      </div>
+
+      <Field label="How much?">
+        {(id) => <MoneyInput id={id} value={amount} onChange={setAmount} size="lg" />}
+      </Field>
+
+      <Field label={kind === "income" ? "What was it for?" : "What did you buy?"}>
+        {(id) => (
+          <input
+            id={id}
+            className={inputClass}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={kind === "income" ? "Like “Deep tissue, Alex T.”" : "Like “Massage oil”"}
+          />
+        )}
+      </Field>
+
+      <fieldset className="m-0 border-0 p-0">
+        <legend className="mb-1.5 p-0 text-[15px] font-medium">Kind</legend>
+        <div className="flex flex-wrap gap-2">
+          {categories.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-pressed={category === c}
+              onClick={() => setCategory(c)}
+              className={`min-h-11 rounded-full px-4 text-[15px] ${
+                category === c ? "bg-sky text-on-sky" : "border border-line-strong bg-card text-ink hover:border-ink"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      <Field label="When?">
+        {(id) => (
+          <input
+            id={id}
+            type="date"
+            max={todayISO()}
+            className={inputClass}
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        )}
+      </Field>
+
+      <div className="flex flex-wrap justify-end gap-3 border-t border-line-soft pt-5">
+        <Button variant="ghost" weight="medium" onClick={onClose}>
+          Cancel
+        </Button>
+        <button
+          type="submit"
+          disabled={!canSave || saving}
+          className="inline-flex min-h-11 items-center justify-center rounded-full bg-sky px-6 text-[15px] font-semibold text-on-sky hover:bg-sky-ink disabled:cursor-not-allowed disabled:bg-line-strong disabled:text-muted"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {!canSave && (
+        <p className="-mt-2 mb-0 text-right text-sm text-muted" aria-live="polite">
+          Add an amount and what it was for to save.
+        </p>
+      )}
+    </form>
+  );
+}

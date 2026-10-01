@@ -1,0 +1,293 @@
+@import "tailwindcss";
+
+/* `dark:` utilities apply when the dark theme is on (see src/lib/theme.tsx) */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Design tokens from docs/DESIGN.md. Use these, never one-off hex values.
+ * Values here are the light theme. The dark theme overrides some of them below.
+ */
+@theme {
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+
+  /* Core palette (docs/DESIGN.md) */
+  --color-ink: #151b26;
+  --color-paper: #f7f8f5;
+  --color-card: #ffffff;
+  --color-line: #e3e6e0;
+  --color-line-soft: #eef0ec;
+  --color-muted: #5e6573;
+  --color-sky: #2a5bd7;
+  --color-sky-light: #7ca3ff;
+  --color-sky-tint: #e6eefc;
+  --color-mint: #3ddc97;
+  --color-mint-tint: #e3f8ee;
+
+  /*
+   * Panels: sidebar, phone top bar, hero cards, highlight tiles, launch day screen.
+   * Pale blue in light mode, ink in dark mode (dark values are in the block below).
+   */
+  --color-panel: #eaf0fb;
+  --color-on-panel: #151b26; /* text on panels */
+  --color-panel-accent: #0f6b47; /* eyebrows, active icons, "good" numbers on panels */
+  --color-panel-mark: #2a5bd7; /* logo circle on panels */
+  --color-ink-2: #ffffff; /* rows inside panels */
+  --color-ink-line: #d6e0f5; /* active nav item, panel borders */
+  --color-on-dark: #3b4250; /* body text on panels */
+  --color-muted-dark: #5e6573; /* secondary text on panels */
+  --color-ink-track: #d3dbea; /* dividers and bar tracks on panels */
+  --color-ink-edge: #8e99ae; /* outlined buttons on panels */
+  --color-ink-ring: #b7c1d4; /* upcoming steps on panels */
+  --color-ink-faint: #5e6573; /* upcoming step labels on panels */
+
+  /* Text on filled buttons */
+  --color-on-sky: #ffffff;
+  --color-on-green: #ffffff;
+
+  /* Supporting shades used in the approved mockups */
+  --color-sky-ink: #1d3f99; /* text on sky-tint, links */
+  --color-sky-deep: #0f1e45; /* text on sky-light badges */
+  --color-mint-ink: #0b2e22; /* text on mint */
+  --color-mint-deep: #0f6b47; /* text on mint-tint, green buttons */
+  --color-mint-heading: #0b3b2e; /* headings on mint-tint */
+  --color-mint-mark: #1fa971; /* logo ring on mint-tint */
+  --color-ink-soft: #3b4250; /* long body text on light */
+  --color-slate: #4a5260; /* neutral chip text */
+  --color-line-strong: #d5d9d2; /* inputs and soft buttons */
+  --color-sun: #f2c14e; /* launch day confetti */
+
+  /* Named text sizes keep the browser's normal line height, like the mockups */
+  --text-xs--line-height: normal;
+  --text-sm--line-height: normal;
+  --text-base--line-height: normal;
+  --text-lg--line-height: normal;
+  --text-2xl--line-height: normal;
+  --text-4xl--line-height: normal;
+
+  /* Shape */
+  --radius-chip: 10px;
+  --radius-row: 16px;
+  --radius-tile: 20px;
+  --radius-card: 24px;
+  --radius-hero: 28px;
+
+  /* Layout: sidebar collapses below this width */
+  --breakpoint-desk: 56.25rem;
+
+  /* Motion (used by onboarding). Always pair with motion-reduce:animate-none. */
+  --animate-step-next: step-next 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-step-back: step-back 380ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-fade-up: fade-up 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-logo-owner: logo-owner 950ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-logo-second: logo-second 950ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-halo: halo 1200ms ease-out 650ms both;
+  --animate-confetti: confetti 900ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  /* Home page */
+  --animate-drift: drift 18s ease-in-out infinite alternate;
+  --animate-typing: typing 1.1s ease-in-out infinite;
+  --animate-word-in: word-in 480ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-pop-in: pop-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-row-done: row-done 900ms ease-out both;
+
+  @keyframes drift {
+    from {
+      transform: translate(-4%, -3%) scale(1);
+    }
+    to {
+      transform: translate(5%, 4%) scale(1.08);
+    }
+  }
+  @keyframes typing {
+    0%,
+    60%,
+    100% {
+      opacity: 0.35;
+      transform: translateY(0);
+    }
+    30% {
+      opacity: 1;
+      transform: translateY(-4px);
+    }
+  }
+  @keyframes word-in {
+    from {
+      opacity: 0;
+      transform: translateY(60%);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* A soft mint ring that spreads out when a task gets approved */
+  @keyframes row-done {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-mint) 55%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 12px transparent;
+    }
+  }
+
+  @keyframes step-next {
+    from {
+      opacity: 0;
+      transform: translateX(32px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes step-back {
+    from {
+      opacity: 0;
+      transform: translateX(-32px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* The owner's circle and the Second ring slide in and link up */
+  @keyframes logo-owner {
+    from {
+      opacity: 0;
+      transform: translateX(-30px);
+    }
+    40% {
+      opacity: 1;
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes logo-second {
+    from {
+      opacity: 0;
+      transform: translateX(30px);
+    }
+    40% {
+      opacity: 1;
+    }
+    to {
+      transform: none;
+    }
+  }
+  @keyframes halo {
+    from {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    15% {
+      opacity: 0.6;
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.8);
+    }
+  }
+  /* Each dot sets --dx / --dy to fly outward */
+  @keyframes confetti {
+    from {
+      opacity: 0;
+      transform: translate(0, 0) scale(0.3);
+    }
+    30% {
+      opacity: 1;
+    }
+    to {
+      opacity: 1;
+      transform: translate(var(--dx), var(--dy)) scale(1);
+    }
+  }
+}
+
+/* Dark theme. Unlayered so it wins over the @theme defaults. */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ink: #eef0ec; /* primary text */
+  --color-paper: #0f141c; /* page background */
+  --color-card: #1a212c;
+  --color-line: #2b3443;
+  --color-line-soft: #242c39;
+  --color-line-strong: #3a4454;
+  --color-muted: #a3aab6;
+  --color-ink-soft: #c8cdd6;
+  --color-slate: #c3c8d1;
+  --color-sky: #7ca3ff; /* lighter blue reads better on dark */
+  --color-on-sky: #0f1e45;
+  --color-sky-tint: #1f2e4f;
+  --color-sky-ink: #afc6ff;
+  --color-mint-tint: #14342a;
+  --color-mint-deep: #5fdda5;
+  --color-on-green: #0b2e22;
+  --color-mint-heading: #d2f4e3;
+  --color-mint-mark: #3ddc97;
+
+  /* Panels go back to the ink look from the mockups */
+  --color-panel: #151b26;
+  --color-on-panel: #f7f8f5;
+  --color-panel-accent: #3ddc97;
+  --color-panel-mark: #7ca3ff;
+  --color-ink-2: #1e2533;
+  --color-ink-line: #263042;
+  --color-on-dark: #c8cdd6;
+  --color-muted-dark: #9aa1ad;
+  --color-ink-track: #2a3445;
+  --color-ink-edge: #4a5566;
+  --color-ink-ring: #3a4557;
+  --color-ink-faint: #7f8898;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    /* The mockups use the browser's default line height, not Tailwind's 1.5 */
+    line-height: normal;
+    font-variant-numeric: tabular-nums;
+  }
+  button {
+    cursor: pointer;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-sky);
+    outline-offset: 2px;
+  }
+  .on-dark :focus-visible {
+    outline-color: var(--color-panel-accent);
+  }
+}
+
+/*
+ * Pages shared by both modes (/chat, /learn) render both sidebars.
+ * An inline script in the root layout sets html[data-mode] from localStorage
+ * before paint, and these rules show the right one. Unlayered so they win.
+ */
+html[data-mode="launch"] .mode-only-running,
+html:not([data-mode="launch"]) .mode-only-launch {
+  display: none !important;
+}
