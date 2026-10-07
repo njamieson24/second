@@ -302,3 +302,77 @@ html[data-mode="launch"] .mode-only-running,
 html:not([data-mode="launch"]) .mode-only-launch {
   display: none !important;
 }
+
+/* ---------- The "Second network" picture on the home page (NetworkGraphic.tsx) ----------
+   data-state: "shown" = finished picture, "waiting" = pulled apart, "playing" = coming together.
+   Only position, opacity and colors change, so it stays light on older phones.
+   Pulling apart ("waiting") is instant, while it's still off screen; coming together is animated. */
+.network-glow-mint {
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-mint) 22%, transparent);
+}
+.network-glow-sky {
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-sky) 18%, transparent);
+}
+.network-node {
+  transition:
+    translate 1s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.8s ease-out;
+  transition-delay: var(--d, 0ms);
+}
+.network-dot {
+  transition:
+    background-color 0.5s ease-out,
+    border-color 0.5s ease-out,
+    color 0.5s ease-out,
+    box-shadow 0.6s ease-out;
+  transition-delay: var(--lit, 0ms);
+}
+.network-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 0.8s ease-out;
+  transition-delay: var(--d, 0ms);
+}
+.network-pulse {
+  stroke-dasharray: 0.06 0.94;
+  animation: network-pulse 2.8s linear infinite;
+  animation-delay: var(--p, 0ms);
+  transition: opacity 0.6s ease-out 2.4s;
+}
+@keyframes network-pulse {
+  from {
+    stroke-dashoffset: 0.06;
+  }
+  to {
+    stroke-dashoffset: -0.94;
+  }
+}
+.network[data-state="waiting"] :is(.network-node, .network-dot, .network-line, .network-pulse) {
+  transition: none;
+}
+.network[data-state="waiting"] .network-node {
+  translate: var(--dx) var(--dy);
+  opacity: 0.4;
+}
+.network[data-state="waiting"] .network-dot {
+  border-color: var(--color-ink-ring);
+  background-color: var(--color-panel);
+  color: var(--color-muted-dark);
+  box-shadow: none;
+}
+.network[data-state="waiting"] .network-line {
+  stroke-dashoffset: 1;
+}
+.network[data-state="waiting"] .network-pulse {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .network-node,
+  .network-dot,
+  .network-line {
+    transition: none;
+  }
+  .network-pulse {
+    display: none;
+  }
+}

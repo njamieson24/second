@@ -18,12 +18,14 @@ import {
   Sprout,
   Store,
   Footprints,
+  Plus,
   Tag,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/Button";
 import { HomeDemo } from "@/components/HomeDemo";
+import { NETWORK_BUSINESSES, NetworkGraphic, type NetworkBusiness } from "@/components/NetworkGraphic";
 import { Logo } from "@/components/Logo";
 import { LogoMeet } from "@/components/LogoMeet";
 import { Reveal } from "@/components/Reveal";
@@ -77,6 +79,19 @@ const helps: { title: string; text: string; icon: LucideIcon }[] = [
   { title: "Ask anything", text: "No question is too basic. Ask in your own words.", icon: MessageCircle },
 ];
 
+// The Second network (coming soon). Examples only: nothing here works yet.
+const collabs: { a: NetworkBusiness; b: NetworkBusiness; aLabel: string; bLabel: string; name: string }[] = [
+  { a: "gym", b: "massage", aLabel: "Gym", bLabel: "Massage therapist", name: "Recovery Saturday" },
+  { a: "brewery", b: "truck", aLabel: "Brewery", bLabel: "Food truck", name: "Tacos at the taproom" },
+  { a: "cafe", b: "bakery", aLabel: "Café", bLabel: "Bakery", name: "Your cookies, our counter" },
+];
+
+const networkSteps = [
+  "Your Second spots a match nearby",
+  "It plans the details with their Second",
+  "You both tap yes, and it's on your calendars",
+];
+
 const promises: { title: string; text: string; icon: LucideIcon }[] = [
   { title: "You're always in charge", text: "Second prepares. You decide. Nothing goes out without your okay.", icon: ShieldCheck },
   { title: "Plain English, always", text: "No business jargon. Any tricky word gets explained.", icon: MessageCircle },
@@ -103,6 +118,9 @@ export default function HomePage() {
           <nav aria-label="Page sections" className="ml-6 hidden gap-1 desk:flex">
             <a href="#how" className="rounded-full px-3 py-2.5 text-[15px] text-muted no-underline hover:text-ink">
               How it works
+            </a>
+            <a href="#network" className="rounded-full px-3 py-2.5 text-[15px] text-muted no-underline hover:text-ink">
+              The network
             </a>
             <a href="#modes" className="rounded-full px-3 py-2.5 text-[15px] text-muted no-underline hover:text-ink">
               Two ways to start
@@ -197,6 +215,78 @@ export default function HomePage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+
+        {/* The Second network (coming soon) */}
+        <section id="network" aria-labelledby="network-title" className="on-dark scroll-mt-20 bg-panel text-on-panel">
+          <div className="mx-auto flex max-w-[1120px] flex-col gap-10 px-4 py-16 desk:px-8 desk:py-20">
+            <div className="grid grid-cols-1 items-center gap-10 desk:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] desk:gap-14">
+              <Reveal className="flex flex-col items-start gap-4">
+                <span className="inline-flex items-center gap-1.5 rounded-chip bg-ink-2 px-3 py-1.5 text-[14px] font-semibold text-panel-accent ring-1 ring-ink-line">
+                  <Sparkles size={16} aria-hidden="true" />
+                  Coming soon
+                </span>
+                <h2
+                  id="network-title"
+                  className="m-0 text-[34px] leading-tight font-semibold tracking-[-0.9px] desk:text-[44px] desk:tracking-[-1.2px]"
+                >
+                  Your Second knows people.
+                </h2>
+                <p className="m-0 max-w-[520px] text-lg leading-normal text-on-dark">
+                  Every business gets its own Second, and the Seconds talk to each other. They find local businesses you
+                  should team up with, plan the collab, and put it on both calendars. You just say yes or no.
+                </p>
+              </Reveal>
+              <NetworkGraphic className="mx-auto max-w-[560px]" />
+            </div>
+
+            <div>
+              <h3 className="m-0 text-[15px] font-semibold text-panel-accent">Collabs your Second could set up</h3>
+              <ul className="m-0 mt-4 grid list-none grid-cols-1 gap-4 p-0 desk:grid-cols-3 desk:gap-6">
+                {collabs.map((c, i) => (
+                  <li key={c.name}>
+                    <Reveal delay={i * 120} className="flex h-full flex-col gap-4 rounded-card bg-ink-2 p-6 ring-1 ring-ink-line">
+                      <CollabIcons a={c.a} b={c.b} />
+                      <div className="flex flex-col items-start gap-2.5">
+                        <p className="m-0 text-[17px] font-semibold">
+                          {c.aLabel} <span className="text-muted-dark">+</span> {c.bLabel}
+                        </p>
+                        <span className="rounded-chip bg-mint-tint px-2.5 py-1 text-[14px] font-semibold text-mint-deep">
+                          {c.name}
+                        </span>
+                      </div>
+                    </Reveal>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="m-0 text-[15px] font-semibold text-panel-accent">How it will work</h3>
+              <ol className="m-0 mt-4 grid list-none grid-cols-1 gap-3 p-0 desk:grid-cols-3 desk:gap-6">
+                {networkSteps.map((step, i) => (
+                  <li key={step} className="flex items-center gap-3 text-base text-on-dark">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-mint text-[15px] font-semibold text-mint-ink">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <Reveal className="flex flex-col items-start gap-4 rounded-card bg-ink-2 p-6 ring-1 ring-ink-line sm:flex-row sm:items-center sm:justify-between desk:px-8">
+              <div>
+                <p className="m-0 text-[22px] font-semibold tracking-[-0.4px]">Be one of the first 25 businesses</p>
+                <p className="mt-1 mb-0 text-base text-on-dark">
+                  Join the beta, and you&apos;ll be among the first to try the network when it&apos;s ready.
+                </p>
+              </div>
+              <Button href="/beta" size="lg" variant="mint" arrow>
+                Join the beta
+              </Button>
+            </Reveal>
           </div>
         </section>
 
@@ -313,6 +403,27 @@ export default function HomePage() {
           <p className="m-0 w-full text-[13px] text-muted">© {new Date().getFullYear()} Second</p>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/** Two business icons joined by a short link, for the collab cards. */
+function CollabIcons({ a, b }: { a: NetworkBusiness; b: NetworkBusiness }) {
+  const A = NETWORK_BUSINESSES[a].icon;
+  const B = NETWORK_BUSINESSES[b].icon;
+  return (
+    <div className="flex items-center" aria-hidden="true">
+      <span className="flex size-12 items-center justify-center rounded-full bg-mint-tint text-mint-deep">
+        <A size={22} />
+      </span>
+      <span className="h-0.5 w-4 bg-ink-ring" />
+      <span className="flex size-7 items-center justify-center rounded-full bg-panel text-on-panel ring-1 ring-ink-line">
+        <Plus size={14} strokeWidth={2.6} />
+      </span>
+      <span className="h-0.5 w-4 bg-ink-ring" />
+      <span className="flex size-12 items-center justify-center rounded-full bg-sky-tint text-sky-ink">
+        <B size={22} />
+      </span>
     </div>
   );
 }

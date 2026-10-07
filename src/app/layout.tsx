@@ -15,10 +15,15 @@ const outfit = Outfit({
 // Not secret. Set NEXT_PUBLIC_SITE_URL in .env.local and in Vercel.
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
+// Shown in search results and link previews for the home page.
+const description =
+  "Second is an AI business partner for small businesses. It helps you start, run and grow, and soon connects you with local businesses to team up with.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "Second",
-  description: "Your business partner, in your pocket.",
+  description,
+  openGraph: { title: "Second: your business partner, in your pocket", description, siteName: "Second", type: "website" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
