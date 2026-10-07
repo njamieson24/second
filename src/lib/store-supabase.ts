@@ -5,44 +5,23 @@
 // that copy right away (so typing feels instant), then go to the database in the
 // background, in order. Fast typing in a money box is grouped into one save.
 
+import {
+  businessProfileRow,
+  DATA_TABLES,
+  eventRow,
+  toEvent,
+  type EventRow,
+  moneyPlanRow,
+  toBusiness,
+  toMoneyPlan,
+  toTransaction,
+  transactionRow,
+  type BusinessRow,
+  type MoneyPlanRow,
+  type TransactionRow,
+} from "./db-rows";
 import { supabase } from "./supabase";
-import type { Backend, Business, Mode, MoneyPlan, Transaction } from "./store";
-
-type BusinessRow = {
-  user_id: string;
-  mode: Mode | null;
-  owner_name: string | null;
-  business_name: string;
-  type: Business["type"] | null;
-  type_label: string | null;
-  area: string | null;
-  services: Business["services"];
-  pay_goal: number | string;
-  goal_note: string | null;
-  opening_day: string | null;
-  launched_at: string | null;
-  created_at: string;
-};
-
-type TransactionRow = Omit<Transaction, "amount"> & { amount: number | string; user_id: string };
-
-function toBusiness(row: BusinessRow | null): Business | null {
-  // A row can exist with only the mode set, before setup is finished.
-  if (!row || row.owner_name === null || row.type === null) return null;
-  return {
-    ownerName: row.owner_name,
-    businessName: row.business_name,
-    type: row.type,
-    typeLabel: row.type_label ?? "",
-    area: row.area ?? "",
-    services: row.services ?? [],
-    payGoal: Number(row.pay_goal),
-    goalNote: row.goal_note ?? undefined,
-    openingDay: row.opening_day ?? undefined,
-    createdAt: row.created_at,
-    launchedAt: row.launched_at ?? undefined,
-  };
-}
+import type { Backend, Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 
 function check<T extends { error: unknown }>(result: T): T {
   if (result.error) throw result.error;
@@ -52,9 +31,11 @@ function check<T extends { error: unknown }>(result: T): T {
 type Cache = {
   business: Business | null;
   mode: Mode | null;
+  showSamples: boolean;
   tasks: string[];
   plan: MoneyPlan | null;
   transactions: Transaction[];
+  events: CalendarEvent[];
 };
 
 export function createSupabaseBackend(userId: string, reportError: (error: unknown) => void): Backend & {
@@ -133,29 +114,26 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
     if (cache) return cache;
     if (!loading) {
       loading = (async () => {
-        const [business, tasks, plan, transactions] = await Promise.all([
+        const [business, tasks, plan, transactions, events] = await Promise.all([
           db.from("businesses").select("*").eq("user_id", userId).maybeSingle(),
           db.from("roadmap_tasks").select("task_id").eq("user_id", userId),
           db.from("money_plans").select("*").eq("user_id", userId).maybeSingle(),
           db.from("transactions").select("*").eq("user_id", userId).order("date"),
+          // The calendar is optional: if its table isn't set up yet, the rest still loads.
+          db.from("events").select("*").eq("user_id", userId).then((r) => {
+            if (r.error) console.warn("Calendar not available yet:", r.error.message);
+            return { ...r, error: null, data: r.error ? [] : r.data };
+          }),
         ]).then((results) => results.map(check));
         const row = business.data as BusinessRow | null;
-        const planRow = plan.data as { monthly_costs: MoneyPlan["monthlyCosts"]; startup_costs: MoneyPlan["startupCosts"]; saved: number | string } | null;
         cache = {
           business: toBusiness(row),
           mode: row?.mode ?? null,
+          showSamples: row?.show_samples === true,
           tasks: ((tasks.data ?? []) as { task_id: string }[]).map((t) => t.task_id),
-          plan: planRow
-            ? { monthlyCosts: planRow.monthly_costs ?? [], startupCosts: planRow.startup_costs ?? [], saved: Number(planRow.saved) }
-            : null,
-          transactions: ((transactions.data ?? []) as TransactionRow[]).map((t) => ({
-            id: t.id,
-            date: t.date,
-            kind: t.kind,
-            amount: Number(t.amount),
-            label: t.label,
-            category: t.category,
-          })),
+          plan: toMoneyPlan(plan.data as MoneyPlanRow | null),
+          transactions: ((transactions.data ?? []) as TransactionRow[]).map(toTransaction),
+          events: ((events.data ?? []) as EventRow[]).map(toEvent),
         };
         return cache;
       })().catch((error) => {
@@ -169,36 +147,18 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
   const saveBusinessRow = () => {
     const b = cache?.business;
     if (!b) return Promise.resolve();
-    return db
-      .from("businesses")
-      .upsert({
-        user_id: userId,
-        owner_name: b.ownerName,
-        business_name: b.businessName,
-        type: b.type,
-        type_label: b.typeLabel,
-        area: b.area,
-        services: b.services,
-        pay_goal: b.payGoal,
-        goal_note: b.goalNote ?? null,
-        opening_day: b.openingDay ?? null,
-        launched_at: b.launchedAt ?? null,
-        created_at: b.createdAt,
-      })
-      .then(check);
+    return db.from("businesses").upsert(businessProfileRow(userId, b)).then(check);
   };
 
   const savePlanRow = () => {
     const p = cache?.plan;
     if (!p) return Promise.resolve();
-    return db
-      .from("money_plans")
-      .upsert({ user_id: userId, monthly_costs: p.monthlyCosts, startup_costs: p.startupCosts, saved: p.saved })
-      .then(check);
+    return db.from("money_plans").upsert(moneyPlanRow(userId, p)).then(check);
   };
 
   return {
     flush,
+    settle,
 
     async getBusiness() {
       return (await load()).business;
@@ -216,6 +176,10 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
       const c = await load();
       c.mode = mode;
       enqueue(() => db.from("businesses").upsert({ user_id: userId, mode }).then(check));
+    },
+
+    async getShowSamples() {
+      return (await load()).showSamples;
     },
 
     async getTasks() {
@@ -253,7 +217,7 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
     async addTransaction(t) {
       const c = await load();
       c.transactions = [...c.transactions, t];
-      enqueue(() => db.from("transactions").insert({ ...t, user_id: userId }).then(check));
+      enqueue(() => db.from("transactions").insert(transactionRow(userId, t)).then(check));
     },
     async deleteTransaction(id) {
       const c = await load();
@@ -261,16 +225,29 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
       enqueue(() => db.from("transactions").delete().eq("user_id", userId).eq("id", id).then(check));
     },
 
-    settle,
+    async getEvents() {
+      return [...(await load()).events];
+    },
+    async addEvent(event) {
+      const c = await load();
+      c.events = [...c.events, event];
+      enqueue(() => db.from("events").insert(eventRow(userId, event)).then(check));
+    },
+    async updateEvent(event) {
+      const c = await load();
+      c.events = c.events.map((e) => (e.id === event.id ? event : e));
+      enqueue(() => db.from("events").update(eventRow(userId, event)).eq("user_id", userId).eq("id", event.id).then(check));
+    },
+    async deleteEvent(id) {
+      const c = await load();
+      c.events = c.events.filter((e) => e.id !== id);
+      enqueue(() => db.from("events").delete().eq("user_id", userId).eq("id", id).then(check));
+    },
 
     async resetAll() {
       await settle();
-      await Promise.all(
-        ["transactions", "roadmap_tasks", "money_plans", "businesses"].map((table) =>
-          db.from(table).delete().eq("user_id", userId).then(check),
-        ),
-      );
-      cache = { business: null, mode: null, tasks: [], plan: null, transactions: [] };
+      await Promise.all(DATA_TABLES.map((table) => db.from(table).delete().eq("user_id", userId).then(check)));
+      cache = { business: null, mode: null, showSamples: false, tasks: [], plan: null, transactions: [], events: [] };
     },
   };
 }

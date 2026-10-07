@@ -8,14 +8,18 @@ import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ProgressBar } from "@/components/ProgressBar";
+import { ChartEmptyNote, EmptyState } from "@/components/EmptyStates";
 import { StatTile } from "@/components/StatTile";
 import { useLoadedData } from "@/lib/data";
 import { currentMonthKey, monthName, shiftMonth, shortDay } from "@/lib/dates";
-import { moneyTip } from "@/lib/mock-data";
 import { changeFromLastMonth, formatMoney, keptHistory, monthTotals, sessionMath } from "@/lib/money";
 import { deleteTransaction, type Transaction } from "@/lib/store";
 
 const CHART_HEIGHT = 178;
+
+// General advice (true for any small business), not based on made-up numbers.
+const MONEY_TIP =
+  "When you work for yourself, no one takes taxes out for you. Many people set aside about 25 to 30% of each payment.";
 
 export default function MoneyPage() {
   const { business, moneyPlan, transactions, typeInfo } = useLoadedData();
@@ -27,6 +31,7 @@ export default function MoneyPage() {
   const last = monthTotals(transactions, shiftMonth(month, -1));
   const history = keptHistory(transactions, month);
   const maxKept = Math.max(1, ...history.map((h) => h.kept));
+  const hasAnyHistory = history.some((h) => h.kept !== 0);
   const incomeCategory = typeInfo.unit[0].toUpperCase() + typeInfo.unit.slice(1);
   const plan = sessionMath(moneyPlan, business.services[0]?.price ?? 0, business.payGoal);
   const goalPercent =
@@ -117,21 +122,30 @@ export default function MoneyPage() {
             </div>
           }
         >
-          <div className="mt-4 grid h-[200px] grid-cols-6 items-end gap-2 desk:gap-[18px]" aria-hidden="true">
-            {history.map((h, i) => {
-              const selected = i === history.length - 1;
-              return (
-                <div key={h.key} className="flex flex-col items-center gap-1.5">
-                  <span className={`text-[13px] ${selected ? "font-semibold text-mint-deep" : "text-muted"}`}>
-                    {formatMoney(h.kept)}
-                  </span>
-                  <div
-                    className={`w-full rounded-[8px_8px_3px_3px] ${selected ? "bg-mint" : "bg-sky"}`}
-                    style={{ height: Math.max(4, Math.round((Math.max(0, h.kept) / maxKept) * CHART_HEIGHT)) }}
-                  />
-                </div>
-              );
-            })}
+          <div className="relative mt-4">
+            <div
+              className="grid h-[200px] grid-cols-6 items-end gap-2 border-b border-line desk:gap-[18px]"
+              aria-hidden="true"
+            >
+              {history.map((h, i) => {
+                const selected = i === history.length - 1;
+                if (!hasAnyHistory) return <div key={h.key} />;
+                return (
+                  <div key={h.key} className="flex flex-col items-center gap-1.5">
+                    <span className={`text-[13px] ${selected ? "font-semibold text-mint-deep" : "text-muted"}`}>
+                      {formatMoney(h.kept)}
+                    </span>
+                    <div
+                      className={`w-full rounded-[8px_8px_3px_3px] ${selected ? "bg-mint" : "bg-sky"}`}
+                      style={{ height: Math.max(4, Math.round((Math.max(0, h.kept) / maxKept) * CHART_HEIGHT)) }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            {!hasAnyHistory && (
+              <ChartEmptyNote text="Your monthly totals will show here once you add money in or out." />
+            )}
           </div>
           <div className="mt-2 grid grid-cols-6 gap-2 text-center text-[13px] text-muted desk:gap-[18px]" aria-hidden="true">
             {history.map((h) => (
@@ -146,7 +160,14 @@ export default function MoneyPage() {
         <Card padding="lg" className="flex flex-col gap-3.5">
           <h2 className="m-0 text-[17px] font-semibold">Where the money went</h2>
           {totals.categories.length === 0 ? (
-            <p className="m-0 text-[15px] text-muted">No spending logged in {monthName(month)}.</p>
+            <EmptyState
+              text={`Add an expense to see where your money goes in ${monthName(month)}.`}
+              action={
+                <Button size="sm" variant="ghost" weight="medium" icon={<Minus size={16} aria-hidden="true" />} onClick={() => setAdding("expense")}>
+                  Add expense
+                </Button>
+              }
+            />
           ) : (
             totals.categories.map((row) => (
               <div key={row.label}>
@@ -160,7 +181,7 @@ export default function MoneyPage() {
           )}
           <div className="mt-auto rounded-row bg-mint-tint px-4 py-3.5">
             <h3 className="m-0 text-sm font-semibold text-mint-deep">Tip from Second</h3>
-            <p className="mt-1 mb-0 text-[15px] leading-[1.45] text-mint-heading">{moneyTip}</p>
+            <p className="mt-1 mb-0 text-[15px] leading-[1.45] text-mint-heading">{MONEY_TIP}</p>
           </div>
         </Card>
       </div>
@@ -170,7 +191,7 @@ export default function MoneyPage() {
           {totals.transactions.length === 0 ? (
             <div className="mt-3 flex flex-col items-start gap-3">
               <p className="m-0 text-[15px] text-muted">
-                Nothing logged in {monthName(month)} yet. Add your first payment and it shows up here.
+                Your payments and expenses for {monthName(month)} will show here.
               </p>
               <Button icon={<Plus size={16} aria-hidden="true" />} onClick={() => setAdding("income")}>
                 Add income

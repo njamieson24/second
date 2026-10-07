@@ -1,16 +1,21 @@
+"use client";
+
+import { ComingSoon, SampleTag } from "@/components/EmptyStates";
+import { useLoadedData } from "@/lib/data";
 import { Button } from "@/components/Button";
 import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { StatTile } from "@/components/StatTile";
-import { outreach } from "@/lib/mock-data";
+import { outreach } from "@/lib/demo-content";
 
-export default function OutreachPage() {
+function SampleOutreach() {
   return (
     <PageBody gap="md">
       <PageHeader
         size="sm"
         title="Outreach"
         subtitle={outreach.subtitle}
+        eyebrow={<SampleTag />}
         actions={
           <Button variant="ghost" weight="medium">
             Find new places
@@ -115,5 +120,16 @@ function PlaceCard({
         </Chip>
       )}
     </div>
+  );
+}
+
+export default function OutreachPage() {
+  const { showSamples } = useLoadedData();
+  if (showSamples) return <SampleOutreach />;
+  return (
+    <PageBody>
+      <PageHeader size="sm" title="Outreach" subtitle="Finding new clients for you" />
+      <ComingSoon title="Second will find new clients for you" text="Second will look for gyms, studios, and offices near you, write each one a friendly email, and track who replies. Nothing is sent until you say yes." className="max-w-[720px]" />
+    </PageBody>
   );
 }

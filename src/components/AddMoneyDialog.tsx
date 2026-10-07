@@ -113,7 +113,7 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
             className={inputClass}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder={kind === "income" ? "Like “Deep tissue, Alex T.”" : "Like “Massage oil”"}
+            placeholder={kind === "income" ? "Like “Deep tissue massage”" : "Like “Supplies”"}
           />
         )}
       </Field>

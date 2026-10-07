@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
@@ -11,7 +11,15 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useLoadedData } from "@/lib/data";
 import { formatMoney } from "@/lib/money";
 import { useMode } from "@/lib/mode";
-import { leaveDemo, logOut, resetAll } from "@/lib/store";
+import {
+  canLoadDemoData,
+  leaveDemo,
+  loadDemoData,
+  logOut,
+  removeDemoData,
+  resetAll,
+  startDemo,
+} from "@/lib/store";
 
 export default function SettingsPage() {
   return (
@@ -33,6 +41,11 @@ function Settings() {
 
   async function reset() {
     setResetting(true);
+    if (demo) {
+      await startDemo(); // the demo starts over with Maria's sample business
+      router.replace("/app");
+      return;
+    }
     await resetAll();
     router.replace("/start");
   }
@@ -121,13 +134,21 @@ function Settings() {
             <ThemeToggle tone="page" className="max-w-[300px]" />
           </Card>
 
+          {account?.kind === "user" && <DemoDataCard />}
+
           <Card title="Start over">
-            <p className="mt-1.5 mb-4 text-[15px] leading-normal text-muted">
-              This deletes {demo ? "everything Second saved in this browser" : "your business data from your account"}:
-              your answers, {completedTasks.length} finished roadmap {completedTasks.length === 1 ? "step" : "steps"},
-              your money plan, and {transactions.length} money {transactions.length === 1 ? "entry" : "entries"}.
-              {demo ? "" : " Your login stays, so you can start again right away."}
-            </p>
+            {demo ? (
+              <p className="mt-1.5 mb-4 text-[15px] leading-normal text-muted">
+                This puts the demo back the way it started, with Maria&apos;s sample business. Anything you changed is
+                undone.
+              </p>
+            ) : (
+              <p className="mt-1.5 mb-4 text-[15px] leading-normal text-muted">
+                This deletes your business data from your account: your answers, {completedTasks.length} finished
+                roadmap {completedTasks.length === 1 ? "step" : "steps"}, your money plan, and {transactions.length} money{" "}
+                {transactions.length === 1 ? "entry" : "entries"}. Your login stays, so you can start again right away.
+              </p>
+            )}
             {confirming ? (
               <div className="rounded-row border border-line-strong bg-paper p-4" role="alert">
                 <p className="mt-0 mb-3 text-[15px] font-medium">Are you sure? This can&apos;t be undone.</p>
@@ -158,5 +179,78 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-[13px] text-muted">{label}</dt>
       <dd className="m-0">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * "Load demo data" for screenshots and videos. Only shows for emails listed in the
+ * server-only DEMO_DATA_EMAILS setting; the server checks again before doing anything.
+ * It only ever changes this person's own account.
+ */
+function DemoDataCard() {
+  const router = useRouter();
+  const [allowed, setAllowed] = useState(false);
+  const [confirming, setConfirming] = useState<"load" | "remove" | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    canLoadDemoData().then((ok) => {
+      if (alive) setAllowed(ok);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!allowed) return null;
+
+  async function run(action: "load" | "remove") {
+    setBusy(true);
+    setMessage(null);
+    const result = action === "load" ? await loadDemoData() : await removeDemoData();
+    setBusy(false);
+    setConfirming(null);
+    if (!result.ok) return setMessage(result.message);
+    router.push(action === "load" ? "/app" : "/start");
+  }
+
+  return (
+    <Card title="Demo data" aside={<Chip tone="sky">Only you see this</Chip>}>
+      <p className="mt-1.5 mb-4 text-[15px] leading-normal text-muted">
+        Fill your own account with Maria&apos;s sample massage business, including 6 months of money and sample
+        content, for screenshots and videos. Other accounts are never touched.
+      </p>
+      {message && (
+        <p role="alert" className="mt-0 mb-4 rounded-row border border-line-strong bg-paper px-4 py-3 text-[15px]">
+          {message}
+        </p>
+      )}
+      {confirming ? (
+        <div className="rounded-row border border-line-strong bg-paper p-4" role="alert">
+          <p className="mt-0 mb-3 text-[15px] font-medium">
+            {confirming === "load"
+              ? "This replaces everything in your account with the sample business. Continue?"
+              : "This deletes everything in your account, including the sample business. Continue?"}
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Button variant="dark" onClick={() => run(confirming)}>
+              {busy ? "Working…" : confirming === "load" ? "Yes, load demo data" : "Yes, remove it"}
+            </Button>
+            <Button variant="ghost" weight="medium" onClick={() => setConfirming(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-3">
+          <Button onClick={() => setConfirming("load")}>Load demo data</Button>
+          <Button variant="ghost" weight="medium" onClick={() => setConfirming("remove")}>
+            Remove demo data
+          </Button>
+        </div>
+      )}
+    </Card>
   );
 }

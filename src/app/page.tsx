@@ -89,7 +89,7 @@ export default function HomePage() {
   const home = data?.account ? homeFor(data) : null;
   const tryDemo = async () => {
     await startDemo();
-    router.push("/start");
+    router.push("/app");
   };
 
   return (

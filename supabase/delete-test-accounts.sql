@@ -12,3 +12,7 @@ order by created_at;
 --    entries are removed automatically too.
 delete from auth.users
 where email like 'second-test-%@example.com';
+
+-- 3. Delete test beta sign-ups from the /beta page (same kind of address).
+delete from public.beta_signups
+where email like 'second-test-%@example.com';

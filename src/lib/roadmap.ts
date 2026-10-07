@@ -101,7 +101,7 @@ export function getStages(type: BusinessType): RoadmapStage[] {
           detail: "Supplies, insurance, apps, marketing.",
           minutes: 20,
           explainer:
-            "I filled in some common costs to start. Change the numbers to match your real ones, and add anything I missed.",
+            "Open your money plan and tap \"Fill in common costs\" for a quick start, then change the numbers to match your real ones.",
           action: { label: "Open money plan", href: "/launch/money" },
         },
         {

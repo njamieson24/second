@@ -1,4 +1,4 @@
-import type { ChipTone } from "@/lib/mock-data";
+export type ChipTone = "mint" | "sky" | "neutral";
 
 const tones: Record<ChipTone, string> = {
   mint: "bg-mint-tint text-mint-deep",

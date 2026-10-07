@@ -176,11 +176,8 @@ function SetupForm({ mode, existing, hasPlan }: { mode: Mode; existing: Business
     await saveBusiness(business);
 
     if (!hasPlan) {
-      const plan: MoneyPlan = {
-        monthlyCosts: info.monthlyCosts.map((c) => ({ ...c, id: newId() })),
-        startupCosts: info.startupCosts.map((c) => ({ ...c, id: newId() })),
-        saved: 0,
-      };
+      // Starts empty: the money plan offers "Fill in common costs" for this business type.
+      const plan: MoneyPlan = { monthlyCosts: [], startupCosts: [], saved: 0 };
       await saveMoneyPlan(plan);
     }
     if (mode === "launch") {

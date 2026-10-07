@@ -7,6 +7,8 @@
 // The functions below look the same either way, so pages don't care which.
 
 import type { BusinessType } from "./business-types";
+import type { BetaProblems, BetaSignup } from "./beta";
+import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
 import { createSupabaseBackend } from "./store-supabase";
 import { supabase, supabaseConfigured } from "./supabase";
@@ -62,6 +64,44 @@ export type Transaction = {
   category: string;
 };
 
+// ---------- Calendar ----------
+
+export type EventType = "appointment" | "business" | "deadline" | "reminder";
+export type EventSource = "manual" | "roadmap" | "second";
+
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  type: EventType;
+  allDay: boolean;
+  /**
+   * Timed events: an exact moment as an ISO string in UTC, like "2026-10-06T14:00:00.000Z".
+   * All-day events: a plain date, "YYYY-MM-DD".
+   */
+  start: string;
+  /** Same format as `start`. For all-day events, the last day (inclusive). */
+  end: string;
+  /** Where it was made, like "America/New_York". Weekly repeats keep this local time. */
+  timeZone: string;
+  clientName?: string;
+  price?: number;
+  location?: string;
+  notes?: string;
+  repeatsWeekly: boolean;
+  /** Last day a weekly repeat happens, "YYYY-MM-DD" (inclusive). Empty = keeps going. */
+  repeatUntil?: string;
+  source: EventSource;
+  roadmapTaskId?: string;
+};
+
+/**
+ * What you need to add an event. Only title, type, and start are required:
+ * the end defaults to 1 hour later (or the same day if all-day), the time zone
+ * to this device's, and the source to "manual".
+ */
+export type NewEvent = Pick<CalendarEvent, "title" | "type" | "start"> &
+  Partial<Omit<CalendarEvent, "id" | "title" | "type" | "start">>;
+
 /** Who is using the app right now. */
 export type Account = { kind: "demo" } | { kind: "user"; email: string };
 
@@ -71,6 +111,8 @@ export type Backend = {
   saveBusiness(business: Business): Promise<void>;
   getMode(): Promise<Mode | null>;
   saveMode(mode: Mode): Promise<void>;
+  /** True when sample content should fill the not-yet-built AI sections (demo only) */
+  getShowSamples(): Promise<boolean>;
   getTasks(): Promise<string[]>;
   completeTask(taskId: string): Promise<void>;
   uncompleteTask(taskId: string): Promise<void>;
@@ -79,6 +121,11 @@ export type Backend = {
   getTransactions(): Promise<Transaction[]>;
   addTransaction(transaction: Transaction): Promise<void>;
   deleteTransaction(id: string): Promise<void>;
+  getEvents(): Promise<CalendarEvent[]>;
+  addEvent(event: CalendarEvent): Promise<void>;
+  /** Replace the whole event (same id). */
+  updateEvent(event: CalendarEvent): Promise<void>;
+  deleteEvent(id: string): Promise<void>;
   resetAll(): Promise<void>;
 };
 
@@ -272,11 +319,20 @@ export async function updatePassword(password: string): Promise<AuthResult> {
   return error ? { ok: false, message: friendlyAuthError(error) } : { ok: true };
 }
 
-/** Use the app without an account. Data stays in this browser. */
+/**
+ * Use the app without an account, filled with Maria's sample business.
+ * Everything stays in this browser; the demo never writes to the database.
+ */
 export async function startDemo(): Promise<void> {
-  if (await currentUser()) await supabase().auth.signOut();
+  if (await currentUser()) {
+    await remote?.backend.settle();
+    await supabase().auth.signOut();
+  }
   remote = null;
   setKey(STORAGE_KEYS.demo, "1");
+  const demo = buildDemoAccount();
+  await localBackend.fill(demo);
+  setKey(STORAGE_KEYS.modeHint, demo.mode);
   notify();
 }
 
@@ -323,6 +379,82 @@ export async function saveMode(mode: Mode): Promise<void> {
   await change((b) => b.saveMode(mode));
 }
 
+/** True when the not-yet-built AI sections should show sample content (demos only). */
+export async function getShowSamples(): Promise<boolean> {
+  return (await (await backend())?.getShowSamples()) ?? false;
+}
+
+// ---------- Demo data for screenshots (server-checked, own account only) ----------
+
+async function demoDataRequest(action: "check" | "load" | "remove"): Promise<{ ok: boolean; allowed?: boolean; message?: string }> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false, message: "Please log in first." };
+  try {
+    const res = await fetch("/api/demo-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, timeZone: deviceTimeZone() }),
+    });
+    return await res.json();
+  } catch {
+    return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
+}
+
+/** Whether this account may use "Load demo data". The server decides (DEMO_DATA_EMAILS). */
+export async function canLoadDemoData(): Promise<boolean> {
+  if (!(await currentUser())) return false;
+  const result = await demoDataRequest("check");
+  return result.ok && result.allowed === true;
+}
+
+/** Replace this account's data with Maria's sample business. Only works for allowed emails. */
+export async function loadDemoData(): Promise<AuthResult> {
+  await remote?.backend.settle();
+  const result = await demoDataRequest("load");
+  if (!result.ok) return { ok: false, message: result.message ?? "Something went wrong. Please try again." };
+  remote = null; // read the new data fresh
+  setKey(STORAGE_KEYS.modeHint, "running");
+  notify();
+  return { ok: true };
+}
+
+/** Empty this account again (business data only; the login stays). */
+export async function removeDemoData(): Promise<AuthResult> {
+  await remote?.backend.settle();
+  const result = await demoDataRequest("remove");
+  if (!result.ok) return { ok: false, message: result.message ?? "Something went wrong. Please try again." };
+  remote = null;
+  setKey(STORAGE_KEYS.modeHint, null);
+  notify();
+  return { ok: true };
+}
+
+// ---------- Beta sign-ups (public /beta page, no account) ----------
+
+export type BetaResult = { ok: true } | { ok: false; message: string; problems?: BetaProblems };
+
+/**
+ * Add someone to the beta list. Goes through the server (/api/beta), which can only
+ * ADD rows; nobody can read the list from the browser. Works the same in the demo.
+ * `website` is the hidden honeypot field (bots fill it in).
+ */
+export async function joinBeta(signup: BetaSignup, website = ""): Promise<BetaResult> {
+  try {
+    const res = await fetch("/api/beta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...signup, website }),
+    });
+    const result = (await res.json()) as BetaResult;
+    if (result.ok) return result;
+    return { ok: false, message: result.message ?? "Something went wrong. Please try again.", problems: result.problems };
+  } catch {
+    return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
+}
+
 // ---------- Roadmap tasks ----------
 
 /** IDs of roadmap tasks the user has checked off (see src/lib/roadmap.ts). */
@@ -362,6 +494,53 @@ export async function addTransaction(transaction: Omit<Transaction, "id">): Prom
 
 export async function deleteTransaction(id: string): Promise<void> {
   await change((b) => b.deleteTransaction(id));
+}
+
+// ---------- Calendar ----------
+
+export function deviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+export async function getEvents(): Promise<CalendarEvent[]> {
+  return (await (await backend())?.getEvents()) ?? [];
+}
+
+/** Add an event. See NewEvent for what's required. Returns the saved event. */
+export async function addEvent(input: NewEvent): Promise<CalendarEvent> {
+  const allDay = input.allDay ?? false;
+  const end = input.end ?? (allDay ? input.start : new Date(new Date(input.start).getTime() + 60 * 60 * 1000).toISOString());
+  const event: CalendarEvent = {
+    ...input,
+    id: newId(),
+    allDay,
+    end,
+    timeZone: input.timeZone ?? deviceTimeZone(),
+    repeatsWeekly: input.repeatsWeekly ?? false,
+    source: input.source ?? "manual",
+  };
+  await change((b) => b.addEvent(event));
+  return event;
+}
+
+/** Change some fields of an event. Returns the updated event, or null if it wasn't found. */
+export async function updateEvent(
+  id: string,
+  changes: Partial<Omit<CalendarEvent, "id">>,
+): Promise<CalendarEvent | null> {
+  const current = (await getEvents()).find((e) => e.id === id);
+  if (!current) return null;
+  const updated: CalendarEvent = { ...current, ...changes, id };
+  await change((b) => b.updateEvent(updated));
+  return updated;
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  await change((b) => b.deleteEvent(id));
 }
 
 // ---------- Launch day ----------

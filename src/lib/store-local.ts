@@ -1,7 +1,8 @@
 // "Try the demo" storage: everything lives in this browser's localStorage.
-// Only store.ts uses this file.
+// It never talks to the database. Only store.ts uses this file.
 
-import type { Backend, Business, Mode, MoneyPlan, Transaction } from "./store";
+import type { DemoAccount } from "./demo-content";
+import type { Backend, Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 
 const KEYS = {
   business: "second:v1:business",
@@ -9,6 +10,8 @@ const KEYS = {
   completedTasks: "second:v1:completed-tasks",
   moneyPlan: "second:v1:money-plan",
   transactions: "second:v1:transactions",
+  showSamples: "second:v1:show-samples",
+  events: "second:v1:events",
 } as const;
 
 function read<T>(key: string): T | null {
@@ -28,7 +31,7 @@ function write(key: string, value: unknown) {
   }
 }
 
-export const localBackend: Backend = {
+export const localBackend: Backend & { fill: (demo: DemoAccount) => Promise<void> } = {
   async getBusiness() {
     return read<Business>(KEYS.business);
   },
@@ -42,6 +45,10 @@ export const localBackend: Backend = {
   },
   async saveMode(mode) {
     write(KEYS.mode, mode);
+  },
+
+  async getShowSamples() {
+    return read<boolean>(KEYS.showSamples) === true;
   },
 
   async getTasks() {
@@ -79,6 +86,25 @@ export const localBackend: Backend = {
     );
   },
 
+  async getEvents() {
+    return read<CalendarEvent[]>(KEYS.events) ?? [];
+  },
+  async addEvent(event) {
+    write(KEYS.events, [...(read<CalendarEvent[]>(KEYS.events) ?? []), event]);
+  },
+  async updateEvent(event) {
+    write(
+      KEYS.events,
+      (read<CalendarEvent[]>(KEYS.events) ?? []).map((e) => (e.id === event.id ? event : e)),
+    );
+  },
+  async deleteEvent(id) {
+    write(
+      KEYS.events,
+      (read<CalendarEvent[]>(KEYS.events) ?? []).filter((e) => e.id !== id),
+    );
+  },
+
   async resetAll() {
     Object.values(KEYS).forEach((key) => {
       try {
@@ -87,5 +113,17 @@ export const localBackend: Backend = {
         // ignore
       }
     });
+  },
+
+  /** Replace everything with a sample business (used by "Try the demo"). */
+  async fill(demo) {
+    await this.resetAll();
+    write(KEYS.business, demo.business);
+    write(KEYS.mode, demo.mode);
+    write(KEYS.completedTasks, demo.completedTasks);
+    write(KEYS.moneyPlan, demo.moneyPlan);
+    write(KEYS.transactions, demo.transactions);
+    write(KEYS.events, demo.events);
+    write(KEYS.showSamples, true);
   },
 };

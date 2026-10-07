@@ -1,19 +1,22 @@
+"use client";
+
+import { ComingSoon, SampleTag } from "@/components/EmptyStates";
+import { useLoadedData } from "@/lib/data";
 import { Button } from "@/components/Button";
 import { Card, ListRow } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { TipCard } from "@/components/TipCard";
-import { brandKit } from "@/lib/mock-data";
+import { brandKit } from "@/lib/demo-content";
 
-// Placeholder for Phase 1. The real brand kit comes in Phase 4.
-export default function BrandKitPage() {
+function SampleBrandKit() {
   return (
     <PageBody>
       <PageHeader
         size="lg"
         title="Brand kit"
         subtitle="Your name, logo, colors, and website. Second drafts them and you pick what you like."
-        actions={<Chip tone="neutral">Coming soon</Chip>}
+        actions={<SampleTag />}
       />
 
       <div className="grid grid-cols-1 items-start gap-6 desk:grid-cols-3">
@@ -73,6 +76,17 @@ export default function BrandKitPage() {
           Ask Second
         </Button>
       </TipCard>
+    </PageBody>
+  );
+}
+
+export default function BrandKitPage() {
+  const { showSamples } = useLoadedData();
+  if (showSamples) return <SampleBrandKit />;
+  return (
+    <PageBody>
+      <PageHeader size="lg" title="Brand kit" subtitle="Your name, logo, colors, and website." />
+      <ComingSoon title="Second will help you look professional" text="Second will suggest names, draft a simple logo and colors, and build a one-page website with your prices and a booking button. You pick what you like." className="max-w-[720px]" />
     </PageBody>
   );
 }

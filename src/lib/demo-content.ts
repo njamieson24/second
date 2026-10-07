@@ -1,13 +1,179 @@
-// Sample content for features that need AI or outside services (later phases).
-// Real saved data (profile, roadmap, money) lives in store.ts.
+// Sample content, kept in ONE place for demos, screenshots, and videos.
+//
+// It is only ever shown when an account has "show sample content" turned on:
+//   - "Try the demo" (no account), which fills this browser with Maria's business.
+//   - "Load demo data" on /settings, which only certain emails can use (checked on
+//     the server with DEMO_DATA_EMAILS) and only fills that person's own account.
+// Real users never see any of this.
 
-export type ChipTone = "mint" | "sky" | "neutral";
+import type { ChipTone } from "@/components/Chip";
+import { getBusinessType } from "./business-types";
+import { getStages } from "./roadmap";
+import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
+import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
 
-export const launchQuestions = [
-  "Do I need an LLC?",
-  "How much should I save before opening?",
-  "What insurance do I need?",
+// ---------- Maria's sample business (real-looking saved data) ----------
+
+export type DemoAccount = {
+  business: Business;
+  mode: Mode;
+  completedTasks: string[];
+  moneyPlan: MoneyPlan;
+  transactions: Transaction[];
+  events: CalendarEvent[];
+};
+
+const id = () => crypto.randomUUID();
+const iso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// What Maria kept (earned minus spent) in each of the last 6 months, oldest first.
+const KEPT = [980, 1150, 1060, 1420, 1710, 1930];
+const CLIENTS = ["Alex T.", "Priya S.", "Jenna P.", "Jordan K.", "Sam R.", "Dana L.", "Chris M.", "Lee W."];
+const SESSIONS = [
+  { name: "Swedish", price: 95 },
+  { name: "Deep tissue", price: 110 },
+  { name: "Prenatal", price: 100 },
+  { name: "Sports massage", price: 110 },
+  { name: "Swedish, 90 min", price: 130 },
 ];
+const EXPENSES = [
+  { label: "Massage oil and linens", category: "Supplies", amount: 180 },
+  { label: "Instagram ad", category: "Ads", amount: 120 },
+  { label: "Studio rental", category: "Rent", amount: 110 },
+];
+
+/** A week of Maria's calendar around today, in the person's own time zone. */
+function demoEvents(now: Date, timeZone: string): CalendarEvent[] {
+  const today = dateKeyIn(now, timeZone);
+  const at = (dayOffset: number, h: number, min = 0) => {
+    const [y, m, d] = addDaysToKey(today, dayOffset).split("-").map(Number);
+    return zonedToDate({ y, m, d, h, min }, timeZone).toISOString();
+  };
+  const timed = (
+    dayOffset: number,
+    h: number,
+    min: number,
+    minutes: number,
+    rest: Pick<CalendarEvent, "title" | "type"> & Partial<CalendarEvent>,
+  ): CalendarEvent => {
+    const start = at(dayOffset, h, min);
+    return {
+      id: id(),
+      allDay: false,
+      start,
+      end: new Date(new Date(start).getTime() + minutes * 60_000).toISOString(),
+      timeZone,
+      repeatsWeekly: false,
+      source: "manual",
+      ...rest,
+    };
+  };
+  const allDay = (dayOffset: number, rest: Pick<CalendarEvent, "title" | "type"> & Partial<CalendarEvent>): CalendarEvent => {
+    const day = addDaysToKey(today, dayOffset);
+    return { id: id(), allDay: true, start: day, end: day, timeZone, repeatsWeekly: false, source: "manual", ...rest };
+  };
+  const appt = (client: string, service: string, price: number) => ({
+    title: `${service}, ${client}`,
+    type: "appointment" as const,
+    clientName: client,
+    price,
+    location: "Home studio",
+  });
+  return [
+    timed(0, 10, 0, 60, appt("Alex T.", "Deep tissue", 110)),
+    timed(0, 12, 30, 90, appt("Priya S.", "Swedish", 130)),
+    timed(0, 15, 0, 60, appt("Jenna P.", "Sports massage", 110)),
+    timed(0, 17, 30, 60, appt("Jordan K.", "Prenatal", 100)),
+    timed(1, 9, 0, 60, appt("Sam R.", "Swedish", 95)),
+    timed(3, 11, 0, 60, appt("Dana L.", "Deep tissue", 110)),
+    timed(-2, 14, 0, 60, appt("Chris M.", "Swedish", 95)),
+    timed(-14, 18, 0, 120, {
+      title: "Chair massage at Seaside Yoga",
+      type: "business",
+      location: "Seaside Yoga Studio",
+      repeatsWeekly: true,
+    }),
+    timed(12, 17, 0, 120, { title: "Chair massage day at Harbor Fitness", type: "business", location: "Harbor Fitness" }),
+    allDay(2, { title: "Order more massage oil", type: "reminder" }),
+    allDay(5, { title: "Pay quarterly taxes", type: "deadline" }),
+  ];
+}
+
+/**
+ * Maria's business, with 6 months of money ending this month and a week of
+ * appointments. Dates are relative to `today`, times are in `timeZone`.
+ */
+export function buildDemoAccount(today: Date = new Date(), timeZone?: string): DemoAccount {
+  const zone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const info = getBusinessType("massage");
+  const monthStart = (back: number) => new Date(today.getFullYear(), today.getMonth() - back, 1);
+
+  const transactions: Transaction[] = [];
+  KEPT.forEach((kept, i) => {
+    const back = KEPT.length - 1 - i;
+    const start = monthStart(back);
+    const lastDay = back === 0 ? Math.max(1, today.getDate()) : new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    const day = (n: number) => iso(new Date(start.getFullYear(), start.getMonth(), 1 + (n % lastDay)));
+
+    const spent = EXPENSES.reduce((s, e) => s + e.amount, 0);
+    EXPENSES.forEach((e, k) =>
+      transactions.push({ id: id(), date: day(5 + k * 9), kind: "expense", amount: e.amount, label: e.label, category: e.category }),
+    );
+
+    // Sessions until the month's earnings are reached; the last one tops it up exactly.
+    const earned = kept + spent;
+    let total = 0;
+    let n = 0;
+    while (total < earned) {
+      const s = SESSIONS[(n + i) % SESSIONS.length];
+      const amount = Math.min(s.price, earned - total);
+      transactions.push({
+        id: id(),
+        date: day(n * 2 + 1),
+        kind: "income",
+        amount,
+        label: `${s.name}, ${CLIENTS[(n + i) % CLIENTS.length]}`,
+        category: "Session",
+      });
+      total += amount;
+      n += 1;
+    }
+  });
+
+  const opened = monthStart(5);
+  return {
+    business: {
+      ownerName: "Maria",
+      businessName: "Shore Touch Massage",
+      type: "massage",
+      typeLabel: info.label,
+      area: "Asbury Park, NJ",
+      services: [
+        { id: id(), name: "Swedish massage", price: 95, minutes: 60 },
+        { id: id(), name: "Deep tissue", price: 110, minutes: 60 },
+        { id: id(), name: "Prenatal massage", price: 100, minutes: 60 },
+        { id: id(), name: "Sports massage", price: 110, minutes: 60 },
+      ],
+      payGoal: 3000,
+      goalNote: "10 new clients by December",
+      openingDay: iso(opened),
+      createdAt: monthStart(7).toISOString(),
+      launchedAt: opened.toISOString(),
+    },
+    mode: "running",
+    completedTasks: getStages("massage").flatMap((s) => s.tasks.map((t) => t.id)),
+    moneyPlan: {
+      monthlyCosts: info.monthlyCosts.map((c) => ({ ...c, id: id() })),
+      startupCosts: info.startupCosts.map((c) => ({ ...c, id: id() })),
+      saved: info.startupCosts.reduce((s, c) => s + c.amount, 0),
+    },
+    transactions,
+    events: demoEvents(today, zone),
+  };
+}
+
+// ---------- Sample content for features that need AI (not built yet) ----------
 
 export const brandKit = {
   initials: "ST",
@@ -28,26 +194,6 @@ export const brandKit = {
   ] as { label: string; status: string; tone: ChipTone }[],
   nameIdeas: ["Shore Touch Massage", "Tidewater Bodywork", "Still Harbor Massage"],
 };
-
-export const moneyPlanTip =
-  "Offer an intro price for your first 10 clients. It gets people in the door and helps you collect reviews fast.";
-
-export const launchDay = {
-  movingOver: [
-    "Your services and prices",
-    "Your logo, website, and booking link",
-    "Your money plan becomes your money tracker",
-    "Your first clients and their notes",
-  ],
-  newInRunning: [
-    "A weekly game plan, drafted for you",
-    "Outreach to local gyms and studios",
-    "Money tracking and pricing tips",
-    "Instagram posts written each week",
-  ],
-};
-
-// ---------- Running mode ----------
 
 export const secondStatus = {
   summary: "18 tasks done this week. About 4.5 hours back in your pocket.",
@@ -78,15 +224,6 @@ export const gamePlan = {
   ],
   footer: "Everything is drafted. You just say yes.",
 };
-
-export const moneyTip = "Your Saturday slots filled up every week. You could raise Saturday prices by $10.";
-
-export const dashboardStats = [
-  { label: "Bookings this week", value: "14", note: "+3 vs last week", good: true },
-  { label: "New clients this month", value: "6", note: "2 from outreach", good: true },
-  { label: "Outreach replies", value: "3", note: "of 12 places" },
-  { label: "Time Second saved you", value: "4.5 hrs", note: "this week" },
-];
 
 export const newReplies = [
   {
@@ -236,7 +373,7 @@ export const chat = {
   },
 };
 
-// ---------- Placeholders ----------
+// ---------- Learn ----------
 
 export const lessons = [
   { title: "What is an EIN?", minutes: 2 },

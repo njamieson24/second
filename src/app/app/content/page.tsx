@@ -1,10 +1,14 @@
+"use client";
+
+import { ComingSoon, SampleTag } from "@/components/EmptyStates";
+import { useLoadedData } from "@/lib/data";
 import { Camera } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card, ListRow } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { TipCard } from "@/components/TipCard";
-import { comingUp, contentPosts } from "@/lib/mock-data";
+import { comingUp, contentPosts } from "@/lib/demo-content";
 
 const photoTones = {
   sky: { box: "bg-sky-tint text-sky-ink", icon: "", chip: "sky" },
@@ -12,13 +16,14 @@ const photoTones = {
   dark: { box: "bg-panel text-on-panel", icon: "text-panel-accent", chip: "neutral" },
 } as const;
 
-export default function ContentPage() {
+function SampleContent() {
   return (
     <PageBody gap="md">
       <PageHeader
         size="sm"
         title="Content"
         subtitle="This week's Instagram posts, written for you"
+        eyebrow={<SampleTag />}
         actions={<Button>Connect Instagram</Button>}
       />
 
@@ -77,6 +82,17 @@ export default function ContentPage() {
           </div>
         </TipCard>
       </div>
+    </PageBody>
+  );
+}
+
+export default function ContentPage() {
+  const { showSamples } = useLoadedData();
+  if (showSamples) return <SampleContent />;
+  return (
+    <PageBody>
+      <PageHeader size="sm" title="Content" subtitle="Posts for Instagram, written for you" />
+      <ComingSoon title="Second will write your posts" text="Each week, Second will write a few Instagram posts with photo ideas and captions, ready to copy and paste." className="max-w-[720px]" />
     </PageBody>
   );
 }

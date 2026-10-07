@@ -6,8 +6,23 @@ import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/Button";
 import { LogoMark } from "@/components/Logo";
 import { useAppData } from "@/lib/data";
-import { launchDay } from "@/lib/mock-data";
 import { graduate } from "@/lib/store";
+
+// What moves over, and what's new. Describes the app, not anyone's data.
+const launchDay = {
+  movingOver: [
+    "Your services and prices",
+    "Your money plan becomes your money tracker",
+    "Your roadmap and everything you checked off",
+    "Your goals",
+  ],
+  newInRunning: [
+    "Money tracking, month by month",
+    "A weekly game plan (coming soon)",
+    "Outreach to local businesses (coming soon)",
+    "Social posts written for you (coming soon)",
+  ],
+};
 
 // Decorative confetti dots: [left %, top px, size px, color]
 const confetti: [number, number, number, string][] = [

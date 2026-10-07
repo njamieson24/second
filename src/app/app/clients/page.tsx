@@ -1,23 +1,25 @@
+"use client";
+
+import { ComingSoon, SampleTag } from "@/components/EmptyStates";
+import { useLoadedData } from "@/lib/data";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
-import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { TipCard } from "@/components/TipCard";
-import { todaySchedule } from "@/lib/mock-data";
+import { todaySchedule } from "@/lib/demo-content";
 
-// Placeholder for Phase 1. Client memory, rebooking, and review requests come later.
-export default function ClientsPage() {
+function SampleClients() {
   return (
     <PageBody gap="md">
       <PageHeader
         size="sm"
         title="Clients"
         subtitle="Everyone you've worked with, and who's due for a visit"
-        actions={<Chip tone="neutral">Coming soon</Chip>}
+        actions={<SampleTag />}
       />
 
       <div className="grid grid-cols-1 items-start gap-5 desk:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <Card padding="lg" title="Your clients" aside={<span className="text-sm text-muted">Sample list</span>}>
+        <Card padding="lg" title="Your clients" aside={<SampleTag />}>
           <ul className="mt-2 mb-0 list-none p-0">
             {todaySchedule.map((c, i) => (
               <li
@@ -54,6 +56,17 @@ export default function ClientsPage() {
           </div>
         </TipCard>
       </div>
+    </PageBody>
+  );
+}
+
+export default function ClientsPage() {
+  const { showSamples } = useLoadedData();
+  if (showSamples) return <SampleClients />;
+  return (
+    <PageBody>
+      <PageHeader size="sm" title="Clients" subtitle="Everyone you work with" />
+      <ComingSoon title="Your client list" text="Second will remember each client, remind you who is due for a visit, and help you ask happy clients for reviews." className="max-w-[720px]" />
     </PageBody>
   );
 }

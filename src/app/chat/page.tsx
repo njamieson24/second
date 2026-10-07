@@ -4,10 +4,11 @@ import { ArrowUp } from "lucide-react";
 import { AppShell, ModeOnly } from "@/components/AppShell";
 import { Button } from "@/components/Button";
 import { ChatBubble } from "@/components/ChatBubble";
+import { ComingSoon, SampleTag } from "@/components/EmptyStates";
 import type { Mode } from "@/lib/mode";
 import { useLoadedData } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
-import { chat, type ChatMessage } from "@/lib/mock-data";
+import { chat, type ChatMessage } from "@/lib/demo-content";
 import { formatMoney } from "@/lib/money";
 import { withName } from "@/lib/text";
 
@@ -40,9 +41,22 @@ export default function ChatPage() {
 
 function Conversation({ mode }: { mode: Mode }) {
   const { messages, suggestions } = chat[mode];
-  const { business } = useLoadedData();
+  const { business, showSamples } = useLoadedData();
+  if (!showSamples) {
+    return (
+      <div className="mx-auto flex w-full max-w-[760px] grow flex-col justify-center py-10">
+        <ComingSoon
+          title="Chat with Second is coming soon"
+          text="Soon you'll be able to ask anything in your own words, like what to charge or what to post, and Second will answer in plain English and draft things for you to approve."
+        />
+      </div>
+    );
+  }
   return (
     <>
+      <div className="mx-auto mt-4 w-full max-w-[760px]">
+        <SampleTag />
+      </div>
       <div
         className="mx-auto flex w-full max-w-[760px] grow flex-col gap-3.5 py-[22px]"
         role="log"
@@ -134,7 +148,7 @@ function Message({ msg }: { msg: ChatMessage }) {
 
 function SidePanel({ mode }: { mode: Mode }) {
   const { working } = chat[mode];
-  const { business } = useLoadedData();
+  const { business, showSamples } = useLoadedData();
   const goal =
     mode === "launch" && business.openingDay
       ? `Open by ${dayLabel(business.openingDay)}`
@@ -147,11 +161,14 @@ function SidePanel({ mode }: { mode: Mode }) {
   ];
   return (
     <aside
-      aria-label="What Second is doing"
+      aria-label="Your business"
       className="hidden w-[368px] shrink-0 flex-col gap-6 border-l border-line bg-card px-6 py-7 desk:flex"
     >
+      {showSamples && (
       <section>
-        <h2 className="m-0 mb-3 text-base font-semibold">Second is on it</h2>
+        <h2 className="m-0 mb-3 flex items-center justify-between text-base font-semibold">
+          Second is on it <SampleTag />
+        </h2>
         <ul className="m-0 list-none p-0">
           {working.map((item, i) => (
             <li
@@ -170,6 +187,7 @@ function SidePanel({ mode }: { mode: Mode }) {
           ))}
         </ul>
       </section>
+      )}
       <section className="rounded-[18px] bg-paper p-[18px]">
         <h2 className="m-0 mb-2.5 text-base font-semibold">Your business</h2>
         <dl className="m-0">

@@ -21,6 +21,7 @@ Read @docs/PRODUCT.md for what we're building and @docs/DESIGN.md for how it mus
 - Roadmap stages and tasks: `src/lib/roadmap.ts`. Business types, suggested services, prices and costs: `src/lib/business-types.ts`. Money math: `src/lib/money.ts`.
 - `src/lib/mock-data.ts` now only holds sample content for features that need AI or outside services (game plan, outreach, content posts, chat, schedule, tips).
 - `/settings` shows the account (Log out) or the demo (Create an account / Leave the demo), and "Start over" (deletes business data, keeps the login).
+- `/beta` is the public beta sign-up page (no login). Rows go to `beta_signups` (`supabase/beta.sql`): anonymous visitors can only insert, nobody can read it from the browser. The page saves through `joinBeta` in store.ts, which posts to `src/app/api/beta/route.ts`. Never `.select()` after that insert or upsert; a duplicate email (error 23505) counts as success. Form rules: `src/lib/beta.ts`. Preview image: `src/app/beta/opengraph-image.tsx` (fonts in `assets/`); it needs `NEXT_PUBLIC_SITE_URL` (the live address) in `.env.local` and Vercel.
 - Test accounts made by automated tests use `second-test-<number>@example.com`. Delete them with `supabase/delete-test-accounts.sql`.
 
 ## Commands

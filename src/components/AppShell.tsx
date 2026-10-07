@@ -1,5 +1,6 @@
 import { RequireBusiness } from "@/lib/data";
 import type { Mode } from "@/lib/mode";
+import { DemoNotice } from "./DemoNotice";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -35,7 +36,10 @@ export function AppShell({
           className={`hidden desk:sticky desk:top-0 desk:flex desk:h-screen desk:overflow-y-auto ${onlyClass(m)}`}
         />
       ))}
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        <DemoNotice />
+        {children}
+      </main>
       {aside}
     </div>
     </RequireBusiness>

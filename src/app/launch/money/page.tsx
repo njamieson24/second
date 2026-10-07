@@ -3,14 +3,19 @@
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { EmptyState } from "@/components/EmptyStates";
 import { Field, MoneyInput } from "@/components/Field";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ProgressBar } from "@/components/ProgressBar";
 import { TipCard } from "@/components/TipCard";
+import type { CostIdea } from "@/lib/business-types";
 import { useLoadedData } from "@/lib/data";
-import { moneyPlanTip } from "@/lib/mock-data";
 import { formatMoney, sessionMath, sumCosts } from "@/lib/money";
 import { newId, saveMainPrice, saveMoneyPlan, savePayGoal, type CostLine, type MoneyPlan } from "@/lib/store";
+
+// General advice, true for any new business.
+const MONEY_PLAN_TIP =
+  "Offer an intro price for your first 10 clients. It gets people in the door and helps you collect reviews fast.";
 
 export default function MoneyPlanPage() {
   const { business, moneyPlan, typeInfo } = useLoadedData();
@@ -19,9 +24,8 @@ export default function MoneyPlanPage() {
   const math = sessionMath(moneyPlan, price, business.payGoal);
   const savingsGoal = sumCosts(moneyPlan.startupCosts);
   const savedPercent = savingsGoal > 0 ? Math.min(100, Math.round((moneyPlan.saved / savingsGoal) * 100)) : 0;
-  const range = typeInfo.priceRange;
-  const position = (value: number) =>
-    Math.min(100, Math.max(0, ((value - range.min) / (range.max - range.min)) * 100));
+  // "Fill in common costs" uses the business type chosen during setup.
+  const kindOf = business.type === "other" ? "" : ` for ${typeInfo.label.toLowerCase()}`;
   const Units = typeInfo.units[0].toUpperCase() + typeInfo.units.slice(1);
 
   const savePlan = (patch: Partial<MoneyPlan>) => saveMoneyPlan({ ...moneyPlan, ...patch });
@@ -40,6 +44,9 @@ export default function MoneyPlanPage() {
             lines={moneyPlan.monthlyCosts}
             onChange={(monthlyCosts) => savePlan({ monthlyCosts })}
             addLabel="Add a cost"
+            emptyText="Add what you spend each month, like supplies, insurance, and apps."
+            ideas={typeInfo.monthlyCosts}
+            fillLabel={`Fill in common costs${kindOf}`}
           />
           <div className="flex justify-between border-t border-line-soft pt-3 text-base font-semibold">
             <span>Total</span>
@@ -62,27 +69,9 @@ export default function MoneyPlanPage() {
             per {main?.minutes ? `${main.minutes}-minute ` : ""}
             {main?.name ?? typeInfo.unit}
           </div>
-          <div className="mt-[18px]">
-            <div className="relative h-2.5 rounded-[5px] bg-line-soft" aria-hidden="true">
-              <div
-                className="absolute h-2.5 rounded-[5px] bg-sky-tint"
-                style={{ left: `${position(range.low)}%`, right: `${100 - position(range.high)}%` }}
-              />
-              <span
-                className="absolute -top-1.5 -ml-[11px] size-[22px] rounded-full border-[3px] border-card bg-sky transition-[left]"
-                style={{ left: `${position(price)}%` }}
-              />
-            </div>
-            <div className="mt-2 flex justify-between gap-2 text-[13px] text-muted">
-              <span>{formatMoney(range.min)}</span>
-              <span className="text-center">
-                Typical nearby: {formatMoney(range.low)} to {formatMoney(range.high)}
-              </span>
-              <span>{formatMoney(range.max)}</span>
-            </div>
-          </div>
           <p className="mt-4 mb-0 text-sm leading-normal text-muted">
-            Sample range for now. Later, Second will pull real prices from businesses near you.
+            Not sure what to charge? Look at three businesses like yours nearby. Soon, Second will show you real
+            prices from your area.
           </p>
         </Card>
 
@@ -123,11 +112,14 @@ export default function MoneyPlanPage() {
             lines={moneyPlan.startupCosts}
             onChange={(startupCosts) => savePlan({ startupCosts })}
             addLabel="Add something"
+            emptyText="Add what you need to buy before you open, like equipment and your first supplies."
+            ideas={typeInfo.startupCosts}
+            fillLabel={`Fill in common startup costs${kindOf}`}
           />
         </Card>
 
         <TipCard title="Tip from Second" style="eyebrow">
-          <p className="mt-2 mb-0 text-base leading-normal text-mint-heading">{moneyPlanTip}</p>
+          <p className="mt-2 mb-0 text-base leading-normal text-mint-heading">{MONEY_PLAN_TIP}</p>
         </TipCard>
       </div>
     </PageBody>
@@ -139,11 +131,43 @@ function CostList({
   lines,
   onChange,
   addLabel,
+  emptyText,
+  ideas,
+  fillLabel,
 }: {
   lines: CostLine[];
   onChange: (lines: CostLine[]) => void;
   addLabel: string;
+  emptyText: string;
+  /** Common costs for this kind of business, offered when the list is empty */
+  ideas: CostIdea[];
+  fillLabel: string;
 }) {
+  if (lines.length === 0) {
+    return (
+      <EmptyState
+        className="mt-3"
+        text={emptyText}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => onChange(ideas.map((c) => ({ ...c, id: newId() })))}>
+              {fillLabel}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              weight="medium"
+              icon={<Plus size={16} aria-hidden="true" />}
+              onClick={() => onChange([{ id: newId(), label: "", amount: 0 }])}
+            >
+              {addLabel}
+            </Button>
+          </div>
+        }
+      />
+    );
+  }
+
   const setLine = (id: string, patch: Partial<CostLine>) =>
     onChange(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 

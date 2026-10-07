@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Book,
+  CalendarDays,
   Camera,
   ChartNoAxesColumn,
   LayoutDashboard,
@@ -18,18 +19,20 @@ import {
 import { useLoadedData, useRoadmap } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
 import type { Mode } from "@/lib/mode";
-import { outreach, secondStatus } from "@/lib/mock-data";
+import { secondStatus } from "@/lib/demo-content";
+import { SampleTag } from "./EmptyStates";
 import { Logo } from "./Logo";
 import { ProgressBar } from "./ProgressBar";
 import { ThemeToggle } from "./ThemeToggle";
 
-type NavItem = { label: string; href: string; icon: LucideIcon; badge?: number };
+type NavItem = { label: string; href: string; icon: LucideIcon };
 
 export const navItems: Record<Mode, NavItem[]> = {
   launch: [
     { label: "Launch plan", href: "/launch", icon: LayoutDashboard },
     { label: "Chat with Second", href: "/chat", icon: MessageCircle },
     { label: "Roadmap", href: "/launch/roadmap", icon: Map },
+    { label: "Calendar", href: "/calendar", icon: CalendarDays },
     { label: "Money plan", href: "/launch/money", icon: ChartNoAxesColumn },
     { label: "Brand kit", href: "/launch/brand", icon: Star },
     { label: "Learn", href: "/learn", icon: Book },
@@ -37,8 +40,9 @@ export const navItems: Record<Mode, NavItem[]> = {
   ],
   running: [
     { label: "Dashboard", href: "/app", icon: LayoutDashboard },
+    { label: "Calendar", href: "/calendar", icon: CalendarDays },
     { label: "Chat with Second", href: "/chat", icon: MessageCircle },
-    { label: "Outreach", href: "/app/outreach", icon: Mail, badge: outreach.unreadReplies },
+    { label: "Outreach", href: "/app/outreach", icon: Mail },
     { label: "Money", href: "/app/money", icon: ChartNoAxesColumn },
     { label: "Content", href: "/app/content", icon: Camera },
     { label: "Clients", href: "/app/clients", icon: Users },
@@ -66,7 +70,7 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const isLaunch = mode === "launch";
-  const { business } = useLoadedData();
+  const { business, showSamples } = useLoadedData();
   const roadmap = useRoadmap();
   const initial = business.ownerName.trim().charAt(0).toUpperCase() || "?";
 
@@ -100,9 +104,9 @@ export function Sidebar({
             >
               <Icon size={20} strokeWidth={2} aria-hidden="true" className={active ? "text-panel-accent" : ""} />
               {item.label}
-              {item.badge ? (
+              {showSamples && item.href === "/app/outreach" ? (
                 <span className="ml-auto rounded-chip bg-mint px-2 py-0.5 text-xs font-semibold text-mint-ink">
-                  {item.badge}
+                  3
                   <span className="sr-only"> new</span>
                 </span>
               ) : null}
@@ -127,11 +131,14 @@ export function Sidebar({
           )}
         </div>
       ) : (
-        pathname === "/app" && (
+        showSamples && pathname === "/app" && (
           <div className="rounded-row bg-ink-2 p-4">
             <div className="flex items-center gap-2 text-[13px] font-semibold text-panel-accent">
               <span className="size-2 rounded-full bg-mint" aria-hidden="true" />
               Second is working
+              <span className="ml-auto">
+                <SampleTag />
+              </span>
             </div>
             <p className="mt-2 mb-0 text-sm leading-[1.45] text-on-dark">{secondStatus.summary}</p>
           </div>

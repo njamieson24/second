@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { MessageCircle, PartyPopper } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
+import { ComingSoon, EmptyState, SampleTag } from "@/components/EmptyStates";
 import { HeroCard, HeroRow } from "@/components/HeroCard";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ProgressBar } from "@/components/ProgressBar";
@@ -12,12 +14,19 @@ import { TextLink } from "@/components/TextLink";
 import { TipCard } from "@/components/TipCard";
 import { useLoadedData, useRoadmap } from "@/lib/data";
 import { dayLabel, daysUntil, longDate } from "@/lib/dates";
-import { brandKit, launchQuestions } from "@/lib/mock-data";
+import { brandKit } from "@/lib/demo-content";
 import { formatMoney, sessionMath, sumCosts } from "@/lib/money";
 import { initialsOf } from "@/lib/text";
 
+// Common beginner questions, each linked to where the answer lives in the app.
+const QUESTIONS = [
+  { q: "Do I need an LLC?", href: "/launch/roadmap?stage=official&task=official-structure" },
+  { q: "How much should I save before opening?", href: "/launch/money" },
+  { q: "What insurance do I need?", href: "/launch/roadmap?stage=official&task=official-license" },
+];
+
 export default function LaunchHomePage() {
-  const { business, moneyPlan, typeInfo } = useLoadedData();
+  const { business, moneyPlan, typeInfo, showSamples } = useLoadedData();
   const roadmap = useRoadmap();
   const main = business.services[0];
   const math = sessionMath(moneyPlan, main?.price ?? 0, business.payGoal);
@@ -113,6 +122,17 @@ export default function LaunchHomePage() {
           </Card>
 
           <Card title="Your money plan">
+            {math.monthlyCosts === 0 ? (
+              <EmptyState
+                className="mt-3"
+                text="Add your monthly costs to see how many clients you need."
+                action={
+                  <Button href="/launch/money" size="sm">
+                    Add my costs
+                  </Button>
+                }
+              />
+            ) : (
             <p className="mt-2.5 mb-0 text-[15px] leading-normal">
               About{" "}
               <b className="font-semibold">
@@ -121,6 +141,7 @@ export default function LaunchHomePage() {
               cover your costs. About <b className="font-semibold">{math.toGoal} a month</b> hits your{" "}
               {formatMoney(business.payGoal)} goal.
             </p>
+            )}
             {savingsGoal > 0 && (
               <div className="mt-3.5">
                 <div className="flex justify-between text-sm text-muted">
@@ -169,23 +190,25 @@ export default function LaunchHomePage() {
           </p>
         </Card>
 
-        <BrandKitCard name={business.businessName} />
+        {showSamples ? (
+          <BrandKitCard name={business.businessName} />
+        ) : (
+          <ComingSoon
+            title="Brand kit"
+            text="Second will help you pick a name, draft a simple logo and colors, and make a one-page website."
+          />
+        )}
 
         <TipCard title="Common questions right now" className="flex flex-col gap-2.5">
-          {launchQuestions.map((q) => (
-            <button
+          {QUESTIONS.map(({ q, href }) => (
+            <Link
               key={q}
-              type="button"
-              className="min-h-12 rounded-[14px] bg-card px-3.5 py-3 text-left text-[15px] text-mint-heading hover:bg-paper"
+              href={href}
+              className="flex min-h-12 items-center rounded-[14px] bg-card px-3.5 py-3 text-left text-[15px] text-mint-heading no-underline hover:bg-paper"
             >
               {q}
-            </button>
+            </Link>
           ))}
-          <div>
-            <Button href="/chat" variant="green">
-              Ask Second
-            </Button>
-          </div>
         </TipCard>
       </div>
     </PageBody>
@@ -194,7 +217,7 @@ export default function LaunchHomePage() {
 
 function BrandKitCard({ name }: { name: string }) {
   return (
-    <Card title="Brand kit">
+    <Card title="Brand kit" aside={<SampleTag />}>
       <div className="my-3.5 flex items-center gap-3.5">
         <div
           className="flex size-16 items-center justify-center rounded-[18px] text-2xl font-semibold"

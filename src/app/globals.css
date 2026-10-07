@@ -56,6 +56,12 @@
   --color-line-strong: #d5d9d2; /* inputs and soft buttons */
   --color-sun: #f2c14e; /* launch day confetti */
 
+  /* Calendar: deadlines are amber, reminders gray (appointments sky, events mint) */
+  --color-amber: #d6950f; /* stripe */
+  --color-amber-tint: #fcefd2; /* fill */
+  --color-amber-ink: #7a4b00; /* text on amber-tint */
+  --color-gray-stripe: #8e99ae;
+
   /* Named text sizes keep the browser's normal line height, like the mockups */
   --text-xs--line-height: normal;
   --text-sm--line-height: normal;
@@ -244,6 +250,11 @@ html[data-theme="dark"] {
   --color-on-green: #0b2e22;
   --color-mint-heading: #d2f4e3;
   --color-mint-mark: #3ddc97;
+
+  --color-amber: #f2c14e;
+  --color-amber-tint: #3a2e13;
+  --color-amber-ink: #f6d488;
+  --color-gray-stripe: #7f8898;
 
   /* Panels go back to the ink look from the mockups */
   --color-panel: #151b26;

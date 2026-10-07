@@ -12,14 +12,17 @@ import { roadmapProgress, type RoadmapProgress } from "./roadmap";
 import {
   getAccount,
   getBusiness,
+  getEvents,
   getMode,
   getMoneyPlan,
+  getShowSamples,
   getTasks,
   getTransactions,
   onSaveError,
   subscribe,
   type Account,
   type Business,
+  type CalendarEvent,
   type Mode,
   type MoneyPlan,
   type Transaction,
@@ -30,9 +33,12 @@ export type AppData = {
   account: Account | null;
   business: Business | null;
   mode: Mode | null;
+  /** Fill the not-yet-built AI sections with sample content (demo and demo data only) */
+  showSamples: boolean;
   completedTasks: string[];
   moneyPlan: MoneyPlan | null;
   transactions: Transaction[];
+  events: CalendarEvent[];
 };
 
 type DataState = { data: AppData | null; loadFailed: boolean };
@@ -42,16 +48,27 @@ const DataContext = createContext<DataState>({ data: null, loadFailed: false });
 async function loadAll(): Promise<AppData> {
   const account = await getAccount();
   if (!account) {
-    return { account, business: null, mode: null, completedTasks: [], moneyPlan: null, transactions: [] };
+    return {
+      account,
+      business: null,
+      mode: null,
+      showSamples: false,
+      completedTasks: [],
+      moneyPlan: null,
+      transactions: [],
+      events: [],
+    };
   }
-  const [business, mode, completedTasks, moneyPlan, transactions] = await Promise.all([
+  const [business, mode, showSamples, completedTasks, moneyPlan, transactions, events] = await Promise.all([
     getBusiness(),
     getMode(),
+    getShowSamples(),
     getTasks(),
     getMoneyPlan(),
     getTransactions(),
+    getEvents(),
   ]);
-  return { account, business, mode, completedTasks, moneyPlan, transactions };
+  return { account, business, mode, showSamples, completedTasks, moneyPlan, transactions, events };
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {

@@ -3,16 +3,18 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { Check, ExternalLink, Link2, PartyPopper } from "lucide-react";
+import { CalendarPlus, Check, ExternalLink, Link2, PartyPopper } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { TextLink } from "@/components/TextLink";
 import { TipCard } from "@/components/TipCard";
-import { useRoadmap } from "@/lib/data";
+import { inputClass } from "@/components/Field";
+import { useLoadedData, useRoadmap } from "@/lib/data";
+import { dayLabel, todayISO } from "@/lib/dates";
 import type { RoadmapProgress, RoadmapTask } from "@/lib/roadmap";
-import { completeTask, uncompleteTask } from "@/lib/store";
+import { addEvent, completeTask, uncompleteTask, updateEvent, type CalendarEvent } from "@/lib/store";
 
 export default function RoadmapPage() {
   // useSearchParams needs a Suspense boundary in the App Router.
@@ -25,6 +27,9 @@ export default function RoadmapPage() {
 
 function Roadmap() {
   const roadmap = useRoadmap();
+  const { events } = useLoadedData();
+  // A task put on the calendar has an all-day deadline linked to it.
+  const taskEvent = (taskId: string) => events.find((e) => e.roadmapTaskId === taskId);
   const params = useSearchParams();
   const router = useRouter();
 
@@ -91,6 +96,7 @@ function Roadmap() {
               open={openTask === task.id}
               onOpen={(open) => setOpen({ stage: stage.id, task: open ? task.id : null })}
               onToggle={() => toggle(task)}
+              calendarEvent={taskEvent(task.id)}
             />
           ))}
         </ol>
@@ -195,6 +201,7 @@ function TaskCard({
   open,
   onOpen,
   onToggle,
+  calendarEvent,
 }: {
   n: number;
   task: RoadmapTask;
@@ -203,6 +210,7 @@ function TaskCard({
   open: boolean;
   onOpen: (open: boolean) => void;
   onToggle: () => void;
+  calendarEvent?: CalendarEvent;
 }) {
   const panelId = `task-${task.id}`;
   return (
@@ -294,8 +302,71 @@ function TaskCard({
               Help me with this
             </Button>
           </div>
+
+          {!done && <PutOnCalendar task={task} existing={calendarEvent} />}
         </div>
       )}
     </li>
+  );
+}
+
+/** "Put it on my calendar": an all-day deadline for this task, linked back to it. */
+function PutOnCalendar({ task, existing }: { task: RoadmapTask; existing?: CalendarEvent }) {
+  const [picking, setPicking] = useState(false);
+  const [day, setDay] = useState(existing?.start ?? todayISO());
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!day) return;
+    setSaving(true);
+    if (existing) await updateEvent(existing.id, { start: day, end: day });
+    else {
+      await addEvent({
+        title: task.title,
+        type: "deadline",
+        allDay: true,
+        start: day,
+        end: day,
+        source: "roadmap",
+        roadmapTaskId: task.id,
+      });
+    }
+    setSaving(false);
+    setPicking(false);
+  }
+
+  if (!picking) {
+    return existing ? (
+      <p className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] text-muted">
+        <CalendarPlus size={18} className="text-sky" aria-hidden="true" />
+        On your calendar for {dayLabel(existing.start, true)}.
+        <button type="button" onClick={() => setPicking(true)} className="min-h-11 font-medium text-sky-ink hover:underline">
+          Change date
+        </button>
+        <TextLink href={`/calendar?date=${existing.start}`}>See calendar</TextLink>
+      </p>
+    ) : (
+      <div>
+        <Button variant="soft" weight="medium" icon={<CalendarPlus size={18} aria-hidden="true" />} onClick={() => setPicking(true)}>
+          Put it on my calendar
+        </Button>
+      </div>
+    );
+  }
+
+  const id = `due-${task.id}`;
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-row bg-paper p-4">
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={id} className="text-[15px] font-medium">
+          When do you want this done?
+        </label>
+        <input id={id} type="date" value={day} onChange={(e) => setDay(e.target.value)} className={`${inputClass} w-auto`} />
+      </div>
+      <Button onClick={save}>{saving ? "Saving…" : "Save"}</Button>
+      <Button variant="ghost" weight="medium" onClick={() => setPicking(false)}>
+        Cancel
+      </Button>
+    </div>
   );
 }

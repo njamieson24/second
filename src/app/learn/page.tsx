@@ -1,26 +1,48 @@
+"use client";
+
 import { BookOpen } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ComingSoon, SampleTag } from "@/components/EmptyStates";
+import { useLoadedData } from "@/lib/data";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
-import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { TipCard } from "@/components/TipCard";
-import { lessons } from "@/lib/mock-data";
+import { lessons } from "@/lib/demo-content";
 
-// Placeholder for Phase 1. Lessons will show up when they're useful.
 export default function LearnPage() {
   return (
     <AppShell mode="current">
+      <Learn />
+    </AppShell>
+  );
+}
+
+function Learn() {
+  const { showSamples } = useLoadedData();
+  if (!showSamples) {
+    return (
+      <PageBody>
+        <PageHeader size="lg" title="Learn" subtitle="Short lessons in plain English." />
+        <ComingSoon
+          title="Short lessons, when you need them"
+          text="Second will show you a quick lesson at the right moment, like what an EIN is when you're about to get one."
+          className="max-w-[720px]"
+        />
+      </PageBody>
+    );
+  }
+  return (
       <PageBody>
         <PageHeader
           size="lg"
           title="Learn"
           subtitle="Short lessons in plain English. Second shows you the right one at the right time."
-          actions={<Chip tone="neutral">Coming soon</Chip>}
+          actions={<SampleTag />}
         />
 
         <div className="grid grid-cols-1 items-start gap-6 desk:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-          <Card title="Lessons for you" aside={<span className="text-sm text-muted">Sample list</span>}>
+          <Card title="Lessons for you" aside={<SampleTag />}>
             <ul className="mt-2 mb-0 list-none p-0">
               {lessons.map((lesson, i) => (
                 <li
@@ -49,6 +71,5 @@ export default function LearnPage() {
           </TipCard>
         </div>
       </PageBody>
-    </AppShell>
   );
 }

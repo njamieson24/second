@@ -1,6 +1,7 @@
 -- Second: database tables for accounts.
 -- Paste all of this into Supabase: SQL Editor > New query > Run.
 -- Safe to run more than once.
+-- The calendar (events table) is in calendar.sql. Run both on a new project.
 --
 -- Every table has row level security (RLS) on, with rules that let a signed-in
 -- person see and change ONLY their own rows. Deleting a user deletes their data.
@@ -20,8 +21,11 @@ create table if not exists public.businesses (
   goal_note     text,
   opening_day   date,
   launched_at   timestamptz,
+  -- Turned on only by "Load demo data" (screenshots and videos)
+  show_samples  boolean not null default false,
   created_at    timestamptz not null default now()
 );
+alter table public.businesses add column if not exists show_samples boolean not null default false;
 
 -- ---------- Roadmap progress (one row per finished task) ----------
 create table if not exists public.roadmap_tasks (
