@@ -8,6 +8,7 @@
 
 import type { BusinessType } from "./business-types";
 import type { BetaProblems, BetaSignup } from "./beta";
+import type { ChatRole, ChatStreamEvent, SavedChatMessage } from "./chat";
 import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
 import { createSupabaseBackend } from "./store-supabase";
@@ -429,6 +430,73 @@ export async function removeDemoData(): Promise<AuthResult> {
   setKey(STORAGE_KEYS.modeHint, null);
   notify();
   return { ok: true };
+}
+
+// ---------- Chat with Second (logged-in accounts only, never the demo) ----------
+
+export type ChatHistoryResult = { ok: true; messages: SavedChatMessage[] } | { ok: false; message: string };
+
+/** The latest saved messages, oldest first. */
+export async function getChatHistory(count = 100): Promise<ChatHistoryResult> {
+  const user = await currentUser();
+  if (!user) return { ok: false, message: "Please log in to chat with Second." };
+  const { data, error } = await supabase()
+    .from("chat_messages")
+    .select("id, role, content, created_at")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(count);
+  if (error) return { ok: false, message: "We couldn't load your earlier messages. Please refresh the page." };
+  return {
+    ok: true,
+    messages: data
+      .map((r) => ({ id: r.id as string, role: r.role as ChatRole, content: r.content as string, createdAt: r.created_at as string }))
+      .reverse(),
+  };
+}
+
+export type ChatSendResult =
+  | { ok: true; remaining: number }
+  | { ok: false; message: string; limit?: boolean };
+
+/**
+ * Ask Second something. The reply streams in through onText, a piece at a time.
+ * Goes through the server (/api/chat), which holds the Claude API key and saves both messages.
+ */
+export async function sendChatMessage(message: string, onText: (piece: string) => void): Promise<ChatSendResult> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false, message: "Please log in to chat with Second." };
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ message, timeZone: deviceTimeZone() }),
+    });
+    if (!res.body) return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: ChatSendResult | null = null;
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      let newline: number;
+      while ((newline = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        const event = JSON.parse(line) as ChatStreamEvent;
+        if (event.type === "text") onText(event.text);
+        else if (event.type === "done") result = { ok: true, remaining: event.remaining };
+        else result = { ok: false, message: event.message, limit: event.limit };
+      }
+      if (done) break;
+    }
+    return result ?? { ok: false, message: "Second stopped partway through. Please try again." };
+  } catch {
+    return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
 }
 
 // ---------- Beta sign-ups (public /beta page, no account) ----------
