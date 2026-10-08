@@ -8,6 +8,7 @@ import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { WhatSecondKnows } from "@/components/WhatSecondKnows";
 import { useLoadedData } from "@/lib/data";
 import { formatMoney } from "@/lib/money";
 import { useMode } from "@/lib/mode";
@@ -101,6 +102,8 @@ function Settings() {
         )}
       </Card>
 
+      <WhatSecondKnows />
+
       <div className="grid grid-cols-1 items-start gap-6 desk:grid-cols-2">
         <Card title="Your business" aside={<Chip tone="sky">{mode === "launch" ? "Launch mode" : "Running mode"}</Chip>}>
           <dl className="mt-3.5 mb-0 flex flex-col gap-3 text-[15px]">
@@ -145,8 +148,9 @@ function Settings() {
             ) : (
               <p className="mt-1.5 mb-4 text-[15px] leading-normal text-muted">
                 This deletes your business data from your account: your answers, {completedTasks.length} finished
-                roadmap {completedTasks.length === 1 ? "step" : "steps"}, your money plan, and {transactions.length} money{" "}
-                {transactions.length === 1 ? "entry" : "entries"}. Your login stays, so you can start again right away.
+                roadmap {completedTasks.length === 1 ? "step" : "steps"}, your money plan, {transactions.length} money{" "}
+                {transactions.length === 1 ? "entry" : "entries"}, and what Second knows about you. Your login and your chat
+                history stay, so you can start again right away.
               </p>
             )}
             {confirming ? (

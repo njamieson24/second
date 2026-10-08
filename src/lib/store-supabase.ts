@@ -8,6 +8,7 @@
 import {
   businessProfileRow,
   DATA_TABLES,
+  MEMORY_TABLES,
   eventRow,
   toEvent,
   type EventRow,
@@ -246,7 +247,9 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
 
     async resetAll() {
       await settle();
-      await Promise.all(DATA_TABLES.map((table) => db.from(table).delete().eq("user_id", userId).then(check)));
+      await Promise.all(
+        [...DATA_TABLES, ...MEMORY_TABLES].map((table) => db.from(table).delete().eq("user_id", userId).then(check)),
+      );
       cache = { business: null, mode: null, showSamples: false, tasks: [], plan: null, transactions: [], events: [] };
     },
   };

@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, RotateCcw } from "lucide-react";
+import { ArrowUp, Check, RotateCcw } from "lucide-react";
 import { AppShell, ModeOnly } from "@/components/AppShell";
 import { FormMessage } from "@/components/AuthShell";
 import { Button } from "@/components/Button";
 import { ChatBubble } from "@/components/ChatBubble";
+import { Chip } from "@/components/Chip";
 import { SampleTag } from "@/components/EmptyStates";
-import { CHAT_MAX_CHARS, type ChatRole } from "@/lib/chat";
+import { CHAT_MAX_CHARS, NOTES_EVERY, type ChatProposal, type ChatRole } from "@/lib/chat";
 import type { Mode } from "@/lib/mode";
 import { useLoadedData } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
 import { chat, type ChatMessage } from "@/lib/demo-content";
 import { formatMoney } from "@/lib/money";
-import { getChatHistory, sendChatMessage } from "@/lib/store";
+import { approveProposal, getChatHistory, ignoreProposal, refreshNotes, sendChatMessage } from "@/lib/store";
 import { withName } from "@/lib/text";
 
 const modes: Mode[] = ["launch", "running"];
@@ -46,7 +47,7 @@ function Conversation() {
 
 // ---------- The real chat (logged-in accounts) ----------
 
-type Shown = { id: string; role: ChatRole; content: string };
+type Shown = { id: string; role: ChatRole; content: string; proposals: ChatProposal[] };
 
 const STARTERS: Record<Mode, string[]> = {
   launch: ["What's my next step?", "How much should I save before opening?", "Do I need an LLC?"],
@@ -68,14 +69,17 @@ function LiveChat() {
   const [remaining, setRemaining] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const sentThisVisit = useRef(0);
 
   useEffect(() => {
     let live = true;
     getChatHistory().then((result) => {
       if (!live) return;
       if (result.ok) {
-        setMessages(result.messages.map((m) => ({ id: m.id, role: m.role, content: m.content })));
+        setMessages(result.messages.map((m) => ({ id: m.id, role: m.role, content: m.content, proposals: m.proposals })));
         setLoading("ready");
+        // Notes pass trigger 1: opening chat. The server skips it if nothing is new.
+        if (result.messages.length) void refreshNotes();
       } else setLoading("failed");
     });
     return () => {
@@ -97,13 +101,22 @@ function LiveChat() {
     const stamp = Date.now();
     const askId = `you-${stamp}`;
     const replyId = `reply-${stamp}`;
-    setMessages((m) => [...m, { id: askId, role: "user", content: message }, { id: replyId, role: "assistant", content: "" }]);
-    const result = await sendChatMessage(message, (piece) =>
-      setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, content: x.content + piece } : x))),
+    setMessages((m) => [
+      ...m,
+      { id: askId, role: "user", content: message, proposals: [] },
+      { id: replyId, role: "assistant", content: "", proposals: [] },
+    ]);
+    const result = await sendChatMessage(
+      message,
+      (piece) => setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, content: x.content + piece } : x))),
+      (_messageId, proposals) => setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, proposals } : x))),
     );
     setSending(false);
     if (result.ok) {
       setRemaining(result.remaining);
+      // Notes pass trigger 2: every few messages in one sitting.
+      sentThisVisit.current += 1;
+      if (sentThisVisit.current % NOTES_EVERY === 0) void refreshNotes();
     } else {
       // Nothing was saved: take the question and any half-reply back out, and offer to try again.
       setMessages((m) => m.filter((x) => x.id !== replyId && x.id !== askId));
@@ -147,7 +160,27 @@ function LiveChat() {
               {m.content}
             </ChatBubble>
           ) : (
-            <ChatBubble key={m.id} from="second">
+            <ChatBubble
+              key={m.id}
+              from="second"
+              extras={
+                m.proposals.length > 0 && (
+                  <div className="flex flex-col gap-2.5">
+                    {m.proposals.map((p) => (
+                      <ProposalCard
+                        key={p.id}
+                        proposal={p}
+                        onChange={(status) =>
+                          setMessages((all) =>
+                            all.map((x) => ({ ...x, proposals: x.proposals.map((y) => (y.id === p.id ? { ...y, status } : y)) })),
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                )
+              }
+            >
               {m.content ? tidy(m.content) : <WritingDots />}
             </ChatBubble>
           ),
@@ -227,6 +260,50 @@ function LiveChat() {
         </p>
       </div>
     </>
+  );
+}
+
+/** A suggested update. Only Approve changes anything, under the owner's own login. */
+function ProposalCard({ proposal, onChange }: { proposal: ChatProposal; onChange: (status: ChatProposal["status"]) => void }) {
+  const [busy, setBusy] = useState<"approve" | "ignore" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function decide(action: "approve" | "ignore") {
+    setBusy(action);
+    setError(null);
+    const result = action === "approve" ? await approveProposal(proposal) : await ignoreProposal(proposal);
+    setBusy(null);
+    if (result.ok) onChange(result.status);
+    else setError(result.message);
+  }
+
+  return (
+    <div className="rounded-row border border-line bg-card px-4 py-3.5" role="group" aria-label="Suggested update">
+      <div className="text-[13px] font-semibold text-sky-ink">Suggested update</div>
+      <p className="mt-1 mb-0 text-[15px] leading-normal text-ink">{proposal.summary}</p>
+      <div className="mt-3" aria-live="polite">
+        {proposal.status === "pending" && (
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => decide("approve")} disabled={busy !== null}>
+              {busy === "approve" ? "Saving…" : "Approve"}
+            </Button>
+            <Button size="sm" variant="ghost" weight="medium" onClick={() => decide("ignore")} disabled={busy !== null}>
+              Ignore
+            </Button>
+          </div>
+        )}
+        {proposal.status === "approved" && (
+          <Chip tone="mint" className="inline-flex items-center gap-1">
+            <Check size={14} strokeWidth={2.6} aria-hidden="true" /> Updated
+          </Chip>
+        )}
+        {proposal.status === "ignored" && <Chip tone="neutral">Ignored. Nothing changed.</Chip>}
+        {proposal.status === "stale" && (
+          <p className="m-0 text-sm text-muted">This can&apos;t be applied anymore, because it changed since. Nothing was changed.</p>
+        )}
+        {error && <p className="mt-2 mb-0 text-sm text-ink">{error}</p>}
+      </div>
+    </div>
   );
 }
 

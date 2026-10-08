@@ -12,7 +12,7 @@ Read @docs/PRODUCT.md for what we're building and @docs/DESIGN.md for how it mus
 ## Stack
 - Next.js (App Router) + TypeScript + Tailwind CSS
 - Font: Outfit (via `next/font/google`). Icons: `lucide-react`.
-- Accounts and data: Supabase (email + password login, Postgres). Tables and row level security are in `supabase/schema.sql` (plus `calendar.sql`, `beta.sql`, `chat.sql`).
+- Accounts and data: Supabase (email + password login, Postgres). Tables and row level security are in `supabase/schema.sql` (plus `calendar.sql`, `beta.sql`, `chat.sql`, `memory.sql`).
 - "Try the demo" keeps the old behavior: data stays in this browser (localStorage), no account.
 - IMPORTANT: `src/lib/store.ts` is the ONLY file that saves or loads data, and the only one that signs people in or out. It picks the backend: `store-supabase.ts` when signed in, `store-local.ts` in the demo. Pages read data through `src/lib/data.tsx` (`useLoadedData`, `useRoadmap`, `RequireAccount`, `RequireBusiness`) and write by calling store functions. Pages never touch localStorage or Supabase directly. (Exceptions: the before-paint script in `src/lib/boot.ts`, and the light/dark choice in `src/lib/theme.tsx`, which is a device setting, not business data.)
 - Supabase keys live in `.env.local` (git-ignored; see `.env.local.example`). Only the PUBLISHABLE key goes in the app. NEVER use the secret / service_role key in browser code, and never commit keys or test passwords.
@@ -30,9 +30,18 @@ Read @docs/PRODUCT.md for what we're building and @docs/DESIGN.md for how it mus
 - Model: `CLAUDE_MODEL` (server-only), default `claude-haiku-4-5-20251001`. Thinking models (like `claude-sonnet-5-5`) automatically get low effort, a bigger reply cap, and Anthropic's refusal fallback.
 - Credit limits: 600 tokens per reply (1500 for thinking models), last 20 messages as history, 2,000 characters per message, 50 messages per person per 24 hours (`CHAT_DAILY_LIMIT` overrides). Token use is saved on each reply in `chat_messages`; the cost query is at the bottom of `supabase/chat.sql`.
 - "Try the demo" never calls the AI. It shows a sample conversation and a sign-up button.
+- Chat history sent to Claude: only the last 20 messages from the last 24 hours (`CHAT_HISTORY_HOURS` overrides). Older facts live on as business notes, so deleting a note really makes Second forget it.
+- Suggested updates: Second proposes changes with tools (`src/lib/chat-tools.ts`), the server checks them and saves cards in `chat_proposals`. The model never writes. Only the owner's Approve writes, through store.ts (`approveProposal` uses `saveBusiness`, `savePayGoal`, `addEvent`, `updateEvent`, `deleteEvent`). Second must never say something changed before it's approved.
+- Business notes ("What Second knows" in Settings): `src/app/api/memory/route.ts` + `src/lib/notes-pass.ts`. Vercel has no background jobs, so the chat page triggers a pass when it opens and every 6 messages; the server skips it if nothing is new. Always Haiku, 300-token cap, max 3 changes, 8 passes per 24 hours (`NOTES_DAILY_LIMIT`). Tokens logged in `memory_runs`. Never save client details, health details or account numbers (instructions plus a server-side filter). Never log note text or messages.
+
+- Known limit: Haiku occasionally asks "want me to update it?" in words without making a card, so the owner has no way to say yes. The rules tell it "the card IS the question", which fixed it in testing, but it can still happen. A stronger model (`CLAUDE_MODEL=claude-sonnet-5-5`) should be more reliable.
+- Prompt caching: not used yet. The fixed part of every chat request (persona + rules 689 tokens, 7 tools 1,458 tokens = 2,147, measured with count_tokens) is below Haiku 4.5's 4,096-token minimum, so a cache marker would do nothing. Order is already cache-friendly (tools, then the fixed system block, then the per-request business context). If the prompt grows past 4,096 tokens, or when switching to a model with a lower minimum (Sonnet 5.5 is 512), add `cache_control` to the first system block and check `cache_read_input_tokens` in `chat_messages`.
 
 ## Before public launch
-- Switch chat message saving to a server-only Supabase secret key (never `NEXT_PUBLIC_`, never in browser code), and remove the "Add own rows" insert policy on `chat_messages`, so users can't insert fake rows into their own history. Today the server saves AS the user with the publishable key.
+- Switch chat message saving to a server-only Supabase secret key (never `NEXT_PUBLIC_`, never in browser code), and remove the "Add own rows" insert policy on `chat_messages`, so users can't insert fake rows into their own history. Today the server saves AS the user with the publishable key. The same applies to `chat_proposals`, `business_notes` and `memory_runs` (memory.sql): move their server-side inserts to the secret key too and drop the "Add own rows" insert policies.
+
+## Future features
+- Business hours should become a real field (days of the week and open/close times, not free text) when we build calendar booking. Booking and Seconds setting up events with each other both need to know when someone is open. Until then, hours mentioned in chat are saved as business notes.
 
 ## Commands
 - `npm run dev` : start the app at localhost:3000

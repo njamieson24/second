@@ -10,6 +10,7 @@ import type { ChipTone } from "@/components/Chip";
 import { getBusinessType } from "./business-types";
 import { getStages } from "./roadmap";
 import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
+import type { BusinessNote } from "./chat";
 import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
 
 // ---------- Maria's sample business (real-looking saved data) ----------
@@ -308,6 +309,15 @@ export const comingUp = [
   { label: "Harbor Fitness event announcement", date: "Nov 10" },
   { label: "Holiday gift cards launch", date: "Nov 1" },
   { label: "Meet your therapist post", date: "Oct 8" },
+];
+
+// ---------- What Second knows (sample notes, demo only) ----------
+
+export const SAMPLE_NOTES: BusinessNote[] = [
+  { id: "sample-1", note: "Wants 3 corporate chair-massage clients by next summer.", createdAt: "2026-09-28T14:00:00Z", updatedAt: "2026-09-28T14:00:00Z" },
+  { id: "sample-2", note: "Works Tuesday to Saturday. Keeps Sundays and Mondays for family.", createdAt: "2026-09-21T14:00:00Z", updatedAt: "2026-09-21T14:00:00Z" },
+  { id: "sample-3", note: "Finds pricing hard. Worries about losing regulars if prices go up.", createdAt: "2026-09-14T14:00:00Z", updatedAt: "2026-09-14T14:00:00Z" },
+  { id: "sample-4", note: "Prefers texting clients over email.", createdAt: "2026-09-07T14:00:00Z", updatedAt: "2026-09-07T14:00:00Z" },
 ];
 
 // ---------- Chat (shared) ----------

@@ -6,6 +6,8 @@ import { roadmapDates, occurrencesBetween } from "./calendar";
 import { dateKeyIn } from "./timezone";
 import { formatMoney, monthTotals, sessionMath, sumCosts } from "./money";
 import { roadmapProgress } from "./roadmap";
+import type { BusinessNote, ChatProposal } from "./chat";
+import type { EventRef } from "./chat-tools";
 import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 
 // Fixed part first, so it can be cached later if it grows. Nothing in here changes per request.
@@ -21,6 +23,7 @@ How you talk:
 What you can and can't do:
 - You can explain, plan, do the math, and write drafts (emails, posts, texts, price lists) for them to copy.
 - You can't send, post, book, file, buy or change anything yourself, and you can't see their email or the internet. Never say or suggest you did. If they ask, write the draft and tell them where to use it.
+- You CAN suggest changes to their saved information with the suggest_ tools (rules below). A suggestion is only a card they can approve.
 - For legal, tax or license rules, give the general picture, then point them to the official office for their state or town, or a local accountant.
 - The Second app has: a launch plan with roadmap steps, a money plan, money tracking, and a calendar. Point them there when it helps. Outreach, social posts and a weekly game plan are coming later.`;
 
@@ -58,8 +61,8 @@ export type ChatContextData = {
   now: Date;
 };
 
-/** A plain-text snapshot of this owner's business for the system prompt. */
-export function businessContext(d: ChatContextData): string {
+/** A plain-text snapshot of this owner's business for the system prompt, plus the E numbers for calendar items. */
+export function businessContext(d: ChatContextData): { text: string; refs: EventRef[] } {
   const { business: b, timeZone, now } = d;
   const today = dateKeyIn(now, timeZone);
   const lines: string[] = [];
@@ -144,19 +147,39 @@ export function businessContext(d: ChatContextData): string {
   const to = new Date(now.getTime() + 14 * DAY);
   const extras = d.mode === "launch" ? roadmapDates(b, roadmap) : [];
   const upcoming = occurrencesBetween(d.events, from, to, extras).slice(0, 10);
+  const refs: EventRef[] = [];
   if (upcoming.length === 0) {
     lines.push("Calendar, next 14 days: nothing planned.");
   } else {
-    const items = upcoming.map((o) => {
+    const items = upcoming.map((o, i) => {
       const day = o.allDay ? o.firstDay : dateKeyIn(o.start, timeZone);
       const when = o.allDay ? `${fmtDay(day)} (all day)` : `${fmtDay(day)} ${fmtTime(o.start, timeZone)}`;
       const who = o.event.clientName ? `, client ${o.event.clientName}` : "";
-      return `- ${when}: ${o.event.title} (${TYPE_NAMES[o.event.type]}${who})`;
+      const editable = !o.link && !o.event.repeatsWeekly;
+      const ref = `E${i + 1}`;
+      refs.push({ ref, eventId: o.event.id, title: o.event.title, editable, when });
+      const note = o.link ? ", roadmap date" : o.event.repeatsWeekly ? ", repeats weekly" : "";
+      return `- ${ref}: ${when}: ${o.event.title} (${TYPE_NAMES[o.event.type]}${who}${note})`;
     });
     lines.push(
       `Calendar, next 14 days. These are bookings and plans that haven't happened yet. A booked client has NOT paid unless a matching payment appears above:\n${items.join("\n")}`,
     );
   }
 
-  return `What you know about this owner's business (from their Second account, kept up to date):\n${lines.join("\n")}`;
+  return { text: `What you know about this owner's business (from their Second account, kept up to date):\n${lines.join("\n")}`, refs };
+}
+
+/** Notes saved from past chats, newest first. */
+export function notesContext(notes: BusinessNote[]): string {
+  if (notes.length === 0) return "Notes from past chats: none yet.";
+  return `Notes from past chats. These are things the owner told you before: their goals, plans, preferences and worries. Use them in your answers whenever they're relevant. When the owner asks about their goals, include the goals in these notes, not only the monthly pay goal. The owner can see, edit and delete these notes, so trust them over older messages:\n${notes
+    .map((n) => `- ${n.note}`)
+    .join("\n")}`;
+}
+
+/** Recent suggestion cards and what the owner did with them. */
+export function proposalsContext(proposals: Pick<ChatProposal, "summary" | "status">[]): string {
+  if (proposals.length === 0) return "";
+  const label = { pending: "waiting for their answer", approved: "APPROVED and saved", ignored: "they IGNORED it", stale: "could not be applied" };
+  return `Your recent suggestion cards:\n${proposals.map((p) => `- ${p.summary}: ${label[p.status]}`).join("\n")}`;
 }

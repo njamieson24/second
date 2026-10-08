@@ -35,6 +35,8 @@ type ButtonProps = {
   className?: string;
   children: React.ReactNode;
   onClick?: () => void;
+  /** Buttons only (not links) */
+  disabled?: boolean;
   "aria-label"?: string;
 };
 
@@ -49,6 +51,7 @@ export function Button({
   className = "",
   children,
   onClick,
+  disabled,
   ...rest
 }: ButtonProps) {
   const classes = [
@@ -59,6 +62,7 @@ export function Button({
     ],
     weight === "semibold" ? "font-semibold" : weight === "medium" ? "font-medium" : "font-normal",
     variants[variant],
+    "disabled:cursor-wait disabled:opacity-60",
     className,
   ].join(" ");
 
@@ -78,7 +82,7 @@ export function Button({
     );
   }
   return (
-    <button type="button" className={classes} onClick={onClick} {...rest}>
+    <button type="button" className={classes} onClick={onClick} disabled={disabled} {...rest}>
       {content}
     </button>
   );

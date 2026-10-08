@@ -8,7 +8,16 @@
 
 import type { BusinessType } from "./business-types";
 import type { BetaProblems, BetaSignup } from "./beta";
-import type { ChatRole, ChatStreamEvent, SavedChatMessage } from "./chat";
+import type {
+  BusinessNote,
+  ChatProposal,
+  ChatRole,
+  ChatStreamEvent,
+  ProposalChange,
+  ProposalStatus,
+  SavedChatMessage,
+} from "./chat";
+import { SAMPLE_NOTES } from "./demo-content";
 import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
 import { createSupabaseBackend } from "./store-supabase";
@@ -447,10 +456,25 @@ export async function getChatHistory(count = 100): Promise<ChatHistoryResult> {
     .order("created_at", { ascending: false })
     .limit(count);
   if (error) return { ok: false, message: "We couldn't load your earlier messages. Please refresh the page." };
+  const ids = data.filter((r) => r.role === "assistant").map((r) => r.id as string);
+  // Cards are optional: if the memory tables aren't set up yet, chat still loads.
+  const { data: cards } = ids.length
+    ? await supabase().from("chat_proposals").select("id, message_id, summary, details, status").in("message_id", ids)
+    : { data: [] };
+  const cardsFor = (messageId: string): ChatProposal[] =>
+    (cards ?? [])
+      .filter((c) => c.message_id === messageId)
+      .map((c) => ({ id: c.id, messageId, summary: c.summary, change: c.details as ProposalChange, status: c.status as ProposalStatus }));
   return {
     ok: true,
     messages: data
-      .map((r) => ({ id: r.id as string, role: r.role as ChatRole, content: r.content as string, createdAt: r.created_at as string }))
+      .map((r) => ({
+        id: r.id as string,
+        role: r.role as ChatRole,
+        content: r.content as string,
+        createdAt: r.created_at as string,
+        proposals: cardsFor(r.id as string),
+      }))
       .reverse(),
   };
 }
@@ -463,7 +487,11 @@ export type ChatSendResult =
  * Ask Second something. The reply streams in through onText, a piece at a time.
  * Goes through the server (/api/chat), which holds the Claude API key and saves both messages.
  */
-export async function sendChatMessage(message: string, onText: (piece: string) => void): Promise<ChatSendResult> {
+export async function sendChatMessage(
+  message: string,
+  onText: (piece: string) => void,
+  onProposals?: (messageId: string, proposals: ChatProposal[]) => void,
+): Promise<ChatSendResult> {
   const { data } = await supabase().auth.getSession();
   const token = data.session?.access_token;
   if (!token) return { ok: false, message: "Please log in to chat with Second." };
@@ -488,6 +516,7 @@ export async function sendChatMessage(message: string, onText: (piece: string) =
         if (!line) continue;
         const event = JSON.parse(line) as ChatStreamEvent;
         if (event.type === "text") onText(event.text);
+        else if (event.type === "proposals") onProposals?.(event.messageId, event.proposals);
         else if (event.type === "done") result = { ok: true, remaining: event.remaining };
         else result = { ok: false, message: event.message, limit: event.limit };
       }
@@ -497,6 +526,147 @@ export async function sendChatMessage(message: string, onText: (piece: string) =
   } catch {
     return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
   }
+}
+
+// ---------- Suggested updates: only the owner's Approve writes ----------
+
+const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** Make the change on a card, with the same functions Settings and the Calendar use. */
+async function applyChange(change: ProposalChange): Promise<boolean> {
+  const business = await getBusiness();
+  if (!business) return false;
+  const services = business.services;
+  switch (change.kind) {
+    case "set_price": {
+      if (!services.some((s) => same(s.name, change.service))) return false;
+      await saveBusiness({ ...business, services: services.map((s) => (same(s.name, change.service) ? { ...s, price: change.newPrice } : s)) });
+      return true;
+    }
+    case "add_service": {
+      if (services.some((s) => same(s.name, change.name))) return false;
+      const added: Service = { id: newId(), name: change.name, price: change.price, ...(change.minutes ? { minutes: change.minutes } : {}) };
+      await saveBusiness({ ...business, services: [...services, added] });
+      return true;
+    }
+    case "remove_service": {
+      if (services.length < 2 || !services.some((s) => same(s.name, change.service))) return false;
+      await saveBusiness({ ...business, services: services.filter((s) => !same(s.name, change.service)) });
+      return true;
+    }
+    case "set_pay_goal":
+      await savePayGoal(change.newGoal);
+      return true;
+    case "add_event":
+      await addEvent({
+        title: change.title,
+        type: change.type,
+        allDay: change.allDay,
+        start: change.start,
+        end: change.end,
+        timeZone: change.timeZone,
+        ...(change.clientName ? { clientName: change.clientName } : {}),
+        source: "second",
+      });
+      return true;
+    case "move_event": {
+      const event = (await getEvents()).find((e) => e.id === change.eventId);
+      if (!event || event.repeatsWeekly) return false;
+      await updateEvent(event.id, { allDay: change.allDay, start: change.start, end: change.end });
+      return true;
+    }
+    case "cancel_event": {
+      const event = (await getEvents()).find((e) => e.id === change.eventId);
+      if (!event || event.repeatsWeekly) return false;
+      await deleteEvent(event.id);
+      return true;
+    }
+  }
+}
+
+async function setCardStatus(id: string, status: ProposalStatus): Promise<boolean> {
+  const { error } = await supabase().from("chat_proposals").update({ status, decided_at: new Date().toISOString() }).eq("id", id);
+  return !error;
+}
+
+export type CardResult = { ok: true; status: ProposalStatus } | { ok: false; message: string };
+
+/** Approve a card: make the change under the owner's own login, then mark the card. */
+export async function approveProposal(card: ChatProposal): Promise<CardResult> {
+  if (!(await currentUser())) return { ok: false, message: "Please log in again." };
+  try {
+    const applied = await applyChange(card.change);
+    await remote?.backend.settle(); // make sure it's saved before Second's next reply reads it
+    const status: ProposalStatus = applied ? "approved" : "stale";
+    if (!(await setCardStatus(card.id, status))) return { ok: false, message: "That was saved, but the card didn't update. Refresh the page to see it." };
+    return { ok: true, status };
+  } catch {
+    return { ok: false, message: "We couldn't make that change. Please try again." };
+  }
+}
+
+/** Ignore a card. Nothing else changes. */
+export async function ignoreProposal(card: ChatProposal): Promise<CardResult> {
+  return (await setCardStatus(card.id, "ignored")) ? { ok: true, status: "ignored" } : { ok: false, message: "Please try again." };
+}
+
+// ---------- Business notes ("What Second knows") ----------
+
+/**
+ * Ask the server to update the notes from recent chats. It only calls the AI when there are
+ * new messages since the last time, and never more than the daily cap. Never runs in the demo.
+ */
+export async function refreshNotes(): Promise<{ ran: boolean; changed: number }> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ran: false, changed: 0 };
+  try {
+    const res = await fetch("/api/memory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: "{}",
+    });
+    const out = (await res.json()) as { ok?: boolean; ran?: boolean; changed?: number };
+    return { ran: Boolean(out.ran), changed: out.changed ?? 0 };
+  } catch {
+    return { ran: false, changed: 0 };
+  }
+}
+
+export type NotesResult = { ok: true; notes: BusinessNote[]; sample: boolean } | { ok: false; message: string };
+
+/** Every saved note, newest first. The demo gets sample notes (read only). */
+export async function getNotes(): Promise<NotesResult> {
+  const user = await currentUser();
+  if (!user) {
+    return getKey(STORAGE_KEYS.demo) === "1" ? { ok: true, notes: SAMPLE_NOTES, sample: true } : { ok: false, message: "Please log in." };
+  }
+  const { data, error } = await supabase()
+    .from("business_notes")
+    .select("id, note, created_at, updated_at")
+    .eq("user_id", user.id)
+    .order("updated_at", { ascending: false });
+  if (error) return { ok: false, message: "We couldn't load what Second knows. Please refresh the page." };
+  return { ok: true, sample: false, notes: data.map((n) => ({ id: n.id, note: n.note, createdAt: n.created_at, updatedAt: n.updated_at })) };
+}
+
+export async function updateNote(id: string, note: string): Promise<boolean> {
+  const text = note.trim().slice(0, 200);
+  if (!text) return false;
+  const { error } = await supabase().from("business_notes").update({ note: text, updated_at: new Date().toISOString() }).eq("id", id);
+  return !error;
+}
+
+export async function deleteNote(id: string): Promise<boolean> {
+  const { error } = await supabase().from("business_notes").delete().eq("id", id);
+  return !error;
+}
+
+export async function clearNotes(): Promise<boolean> {
+  const user = await currentUser();
+  if (!user) return false;
+  const { error } = await supabase().from("business_notes").delete().eq("user_id", user.id);
+  return !error;
 }
 
 // ---------- Beta sign-ups (public /beta page, no account) ----------

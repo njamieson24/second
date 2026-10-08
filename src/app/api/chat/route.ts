@@ -4,16 +4,31 @@
 //   and is never logged.
 // - Only logged-in people: the request carries their login token, and every database
 //   read and write is made AS that person with the public key (row level security).
-// - Protects the credits: capped reply length, only the last CHAT_HISTORY messages are
-//   sent, and a daily limit per person (CHAT_DAILY_LIMIT, default 50 in 24 hours).
+// - Protects the credits: capped reply length, only the last CHAT_HISTORY messages from the
+//   last CHAT_HISTORY_HOURS are sent (older ones live on as notes), and a daily limit per
+//   person (CHAT_DAILY_LIMIT, default 50 in 24 hours).
+// - Second can SUGGEST changes with tools (src/lib/chat-tools.ts). Suggestions are checked and
+//   saved as cards; nothing is changed until the owner taps Approve (store.ts does the writing).
 // - Every reply is saved with its token counts, so costs show in the database.
 //
 // POST { message, timeZone }  ->  a stream of ChatStreamEvent, one JSON object per line.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { CHAT_DAILY_LIMIT, CHAT_HISTORY, CHAT_MAX_CHARS, type ChatStreamEvent } from "@/lib/chat";
-import { businessContext, SECOND_PERSONA } from "@/lib/chat-context";
+import { randomUUID } from "node:crypto";
+import {
+  CHAT_DAILY_LIMIT,
+  CHAT_HISTORY,
+  CHAT_HISTORY_HOURS,
+  CHAT_MAX_CHARS,
+  NOTES_IN_CONTEXT,
+  type BusinessNote,
+  type ChatProposal,
+  type ChatStreamEvent,
+  type ProposalStatus,
+} from "@/lib/chat";
+import { businessContext, notesContext, proposalsContext, SECOND_PERSONA } from "@/lib/chat-context";
+import { checkToolCall, PROPOSAL_TOOLS, TOOL_RULES } from "@/lib/chat-tools";
 import { toBusiness, toEvent, toMoneyPlan, toTransaction, type BusinessRow, type EventRow, type MoneyPlanRow, type TransactionRow } from "@/lib/db-rows";
 import type { Mode } from "@/lib/store";
 
@@ -28,6 +43,13 @@ const FALLBACK_MODELS = ["claude-sonnet-5-5", "claude-opus-5-5", "claude-opus-5"
 
 const BUSY = "Second is a bit busy right now. Please try again in a minute.";
 const NOT_SET_UP = "Chat with Second isn't working right now. We're on it. Please try again later.";
+
+const MAX_PROPOSALS = 2;
+
+function historyHours(): number {
+  const n = Number.parseFloat(process.env.CHAT_HISTORY_HOURS ?? "");
+  return Number.isFinite(n) && n > 0 ? n : CHAT_HISTORY_HOURS;
+}
 
 function dailyLimit(): number {
   const n = Number.parseInt(process.env.CHAT_DAILY_LIMIT ?? "", 10);
@@ -119,13 +141,20 @@ export async function POST(request: Request) {
   const now = new Date();
   const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
   const limit = dailyLimit();
-  const [biz, tasks, plan, txs, evs, history, today] = await Promise.all([
+  const historySince = new Date(now.getTime() - historyHours() * 3_600_000).toISOString();
+  const [biz, tasks, plan, txs, evs, history, today, notesRes, cardsRes] = await Promise.all([
     db.from("businesses").select("*").eq("user_id", user.id).maybeSingle(),
     db.from("roadmap_tasks").select("task_id").eq("user_id", user.id),
     db.from("money_plans").select("*").eq("user_id", user.id).maybeSingle(),
     db.from("transactions").select("*").eq("user_id", user.id),
     db.from("events").select("*").eq("user_id", user.id),
-    db.from("chat_messages").select("role, content").eq("user_id", user.id).order("created_at", { ascending: false }).limit(CHAT_HISTORY),
+    db
+      .from("chat_messages")
+      .select("role, content")
+      .eq("user_id", user.id)
+      .gte("created_at", historySince)
+      .order("created_at", { ascending: false })
+      .limit(CHAT_HISTORY),
     db
       .from("chat_messages")
       .select("created_at", { count: "exact" })
@@ -134,6 +163,8 @@ export async function POST(request: Request) {
       .gte("created_at", dayAgo)
       .order("created_at", { ascending: true })
       .limit(1),
+    db.from("business_notes").select("id, note, created_at, updated_at").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(NOTES_IN_CONTEXT),
+    db.from("chat_proposals").select("summary, status").eq("user_id", user.id).order("created_at", { ascending: false }).limit(8),
   ]);
   if (history.error || today.error) {
     console.error("chat: chat_messages table problem", history.error?.code ?? today.error?.code);
@@ -155,16 +186,23 @@ export async function POST(request: Request) {
 
   // ---------- Build the request ----------
   const mode: Mode = (biz.data as { mode?: Mode } | null)?.mode === "running" ? "running" : "launch";
-  const context = businessContext({
+  const events = ((evs.data ?? []) as EventRow[]).map(toEvent);
+  const { text: context, refs } = businessContext({
     business,
     mode,
     completedTaskIds: (tasks.data ?? []).map((t) => t.task_id as string),
     moneyPlan: toMoneyPlan(plan.data as MoneyPlanRow | null),
     transactions: ((txs.data ?? []) as TransactionRow[]).map(toTransaction),
-    events: ((evs.data ?? []) as EventRow[]).map(toEvent),
+    events,
     timeZone,
     now,
   });
+  // Memory tables are optional: if they're missing (memory.sql not run yet), chat still works.
+  const notes: BusinessNote[] = notesRes.error
+    ? []
+    : (notesRes.data ?? []).map((n) => ({ id: n.id, note: n.note, createdAt: n.created_at, updatedAt: n.updated_at }));
+  const recentCards = cardsRes.error ? [] : ((cardsRes.data ?? []) as { summary: string; status: ProposalStatus }[]).reverse();
+  const memoryReady = !notesRes.error && !cardsRes.error;
 
   const past = ((history.data ?? []) as { role: "user" | "assistant"; content: string }[]).reverse();
   while (past.length && past[0].role !== "user") past.shift(); // the conversation must start with them
@@ -182,9 +220,10 @@ export async function POST(request: Request) {
     model,
     max_tokens: thinks ? 1500 : 600,
     system: [
-      { type: "text", text: SECOND_PERSONA },
-      { type: "text", text: context },
+      { type: "text", text: memoryReady ? `${SECOND_PERSONA}\n\n${TOOL_RULES}` : SECOND_PERSONA },
+      { type: "text", text: [context, notesContext(notes), proposalsContext(recentCards)].filter(Boolean).join("\n\n") },
     ],
+    ...(memoryReady ? { tools: PROPOSAL_TOOLS } : {}),
     messages,
     ...(thinks ? { output_config: { effort: "low" as const } } : {}),
     ...(fallback ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
@@ -205,6 +244,30 @@ export async function POST(request: Request) {
           }
         }
         const final = await stream.finalMessage();
+
+        // Suggested updates: check each one; only good ones become cards.
+        const replyId = randomUUID();
+        const cards: ChatProposal[] = [];
+        if (final.stop_reason !== "max_tokens" && final.stop_reason !== "refusal") {
+          for (const block of final.content) {
+            if (block.type !== "tool_use" || cards.length >= MAX_PROPOSALS) continue;
+            const checked = checkToolCall(block.name, block.input, { business, events, refs, timeZone, now });
+            if (checked && !cards.some((c) => c.summary === checked.summary))
+              cards.push({ ...checked, id: randomUUID(), messageId: replyId, status: "pending" });
+          }
+        }
+        const usedTools = final.content.some((b) => b.type === "tool_use");
+        if (usedTools && !text.trim()) {
+          text = cards.length
+            ? "Here's what I can update for you. Nothing changes until you tap Approve."
+            : "I wasn't able to set that up. Could you tell me again, a little differently?";
+          send({ type: "text", text });
+        } else if (usedTools && cards.length === 0) {
+          const note = "\n\n(I couldn't set up that change. You can also do it yourself in Settings or the Calendar.)";
+          text += note;
+          send({ type: "text", text: note });
+        }
+
         if (final.stop_reason === "max_tokens") {
           const note = "\n\n(I stopped there to keep things short. Ask me to keep going.)";
           text += note;
@@ -217,8 +280,9 @@ export async function POST(request: Request) {
         if (!text.trim()) throw new Error("empty reply");
 
         const { error } = await db.from("chat_messages").insert([
-          { user_id: user.id, role: "user", content: message, created_at: userAt },
+          { id: randomUUID(), user_id: user.id, role: "user", content: message, created_at: userAt },
           {
+            id: replyId,
             user_id: user.id,
             role: "assistant",
             content: text,
@@ -233,6 +297,13 @@ export async function POST(request: Request) {
           },
         ]);
         if (error) console.error("chat: couldn't save the messages", error.code);
+        if (!error && cards.length) {
+          const { error: cardError } = await db.from("chat_proposals").insert(
+            cards.map((c) => ({ id: c.id, user_id: user.id, message_id: replyId, kind: c.change.kind, details: c.change, summary: c.summary })),
+          );
+          if (cardError) console.error("chat: couldn't save suggestion cards", cardError.code);
+          else send({ type: "proposals", messageId: replyId, proposals: cards });
+        }
         send({ type: "done", remaining: Math.max(0, limit - usedToday - 1) });
       } catch (error) {
         send({ type: "error", message: friendly(error, model) });

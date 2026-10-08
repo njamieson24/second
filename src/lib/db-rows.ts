@@ -149,3 +149,9 @@ export function eventRow(userId: string, e: CalendarEvent): EventRow {
 
 /** The tables that hold one person's business data. */
 export const DATA_TABLES = ["events", "transactions", "roadmap_tasks", "money_plans", "businesses"] as const;
+
+/**
+ * Also cleared by "Start over": what Second learned (notes) and its suggestion cards.
+ * Not memory_runs (the AI cost log and daily cap) and not chat_messages (chat history stays).
+ */
+export const MEMORY_TABLES = ["chat_proposals", "business_notes"] as const;
