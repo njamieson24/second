@@ -11,6 +11,7 @@ import { getBusinessType } from "./business-types";
 import { getStages } from "./roadmap";
 import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 import type { BusinessNote } from "./chat";
+import type { PlanAction, WeekPlan } from "./week";
 import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
 
 // ---------- Maria's sample business (real-looking saved data) ----------
@@ -225,6 +226,82 @@ export const gamePlan = {
   ],
   footer: "Everything is drafted. You just say yes.",
 };
+
+/** "This Week" for the demo: a sample plan with sample drafts for Maria. Never calls the AI. */
+export function sampleWeek(mode: Mode = "running"): WeekPlan {
+  const monday = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+  const actions: PlanAction[] =
+    mode === "launch"
+      ? [
+          {
+            id: "sample-a1",
+            position: 1,
+            type: "roadmap_step",
+            title: "Get your EIN from the IRS",
+            why: "28 days until opening day, and this one takes 10 minutes",
+            clientFirstName: null,
+            status: "open",
+            draft: "- Go to irs.gov and search \"EIN online\"\n- Pick \"Sole proprietor\"\n- Answer the questions (about 10 minutes)\n- Save the PDF letter they give you at the end",
+          },
+          {
+            id: "sample-a2",
+            position: 2,
+            type: "roadmap_step",
+            title: "Get a quote for liability insurance",
+            why: "Step 9 of 31 on your roadmap",
+            clientFirstName: null,
+            status: "open",
+            draft: "- Call two insurers that cover massage therapists\n- Ask for $1 million per claim coverage\n- Compare the yearly price\n- Ask what's not covered",
+          },
+          {
+            id: "sample-a3",
+            position: 3,
+            type: "money",
+            title: "Add your first month of costs to the money plan",
+            why: "You've saved $1,200 of your $3,400 startup goal",
+            clientFirstName: null,
+            status: "open",
+            draft: "- Open the Money plan\n- Add rent, supplies and insurance\n- Check how many sessions cover them\n- Move one cost you can skip to \"later\"",
+          },
+        ]
+      : [
+          {
+            id: "sample-a1",
+            position: 1,
+            type: "client_message",
+            title: "Text Jenna to see how her shoulder is doing",
+            why: "Jenna's last visit was 42 days ago",
+            clientFirstName: "Jenna",
+            status: "open",
+            draft: "Hi Jenna! It's Maria from Shore Touch. I've been thinking of you. How's everything feeling? I have openings Thursday and Saturday if you'd like to come in. No pressure!",
+          },
+          {
+            id: "sample-a2",
+            position: 2,
+            type: "post",
+            title: "Post about your open spots on Thursday",
+            why: "4 days in the next week have nothing booked",
+            clientFirstName: null,
+            status: "open",
+            draft: "Photo idea: your massage table by the window, with a towel folded and a plant nearby.\n\nI have a few spots open this Thursday. If your shoulders have been up by your ears lately, this is your sign. Book a 60-minute deep tissue and leave feeling like yourself again. #AsburyPark #massage #selfcare",
+          },
+          {
+            id: "sample-a3",
+            position: 3,
+            type: "collab_idea",
+            title: "Team up with a gym near you for a recovery day",
+            why: "You're $400 behind your $3,000 pay goal",
+            clientFirstName: null,
+            status: "open",
+            draft: "Hi! I'm Maria, a massage therapist here in Asbury Park. I'd love to team up with [Business name]. Idea: a \"Recovery Saturday\" where I do free 10-minute chair massages at your gym, and your members get 20% off their first full massage with me. Your members get a perk, and we both get new faces. Want to grab a coffee and talk it over?",
+          },
+        ];
+  return { weekStart: monday, actions, redosLeft: 2, fallback: false };
+}
 
 export const newReplies = [
   {

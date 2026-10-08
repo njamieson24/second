@@ -100,15 +100,19 @@ create policy "Add own rows" on public.memory_runs for insert to authenticated
   with check ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
--- All AI costs per day (chat replies + notes passes). Not part of the setup above:
+-- All AI costs per day: chat, notes, weekly plans and drafts (plans and drafts need week.sql).
+-- Not part of the setup above:
 --
 -- select day, kind, model, count(*) as calls, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens
 -- from (
 --   select date_trunc('day', created_at) as day, 'chat' as kind, model, input_tokens, output_tokens
 --   from public.chat_messages where role = 'assistant'
 --   union all
---   select date_trunc('day', created_at), 'notes', model, input_tokens, output_tokens
---   from public.memory_runs
+--   select date_trunc('day', created_at), 'notes', model, input_tokens, output_tokens from public.memory_runs
+--   union all
+--   select date_trunc('day', created_at), 'plan', model, input_tokens, output_tokens from public.weekly_plans where not fallback
+--   union all
+--   select date_trunc('day', created_at), 'draft', model, input_tokens, output_tokens from public.draft_runs
 -- ) t
 -- group by 1, 2, 3
 -- order by 1 desc, 2;

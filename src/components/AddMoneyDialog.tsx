@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "./Button";
 import { Field, inputClass, MoneyInput } from "./Field";
+import { useAppData } from "@/lib/data";
 import { todayISO } from "@/lib/dates";
+import { knownClientNames, matchClientName } from "@/lib/money";
 import { addTransaction, type Transaction } from "@/lib/store";
 
 export type MoneyKind = Transaction["kind"];
@@ -50,6 +52,9 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
   const [amount, setAmount] = useState(0);
   const [label, setLabel] = useState("");
   const [date, setDate] = useState(todayISO());
+  const [client, setClient] = useState("");
+  const data = useAppData();
+  const knownClients = knownClientNames(data?.transactions ?? [], data?.events ?? []);
   const categories =
     kind === "income"
       ? [incomeCategory, "Gift card", "Tip", "Other"]
@@ -67,7 +72,8 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
     e.preventDefault();
     if (!canSave) return;
     setSaving(true);
-    await addTransaction({ kind, amount, label: label.trim(), category, date });
+    const clientName = kind === "income" && client.trim() ? matchClientName(client, knownClients).slice(0, 80) : undefined;
+    await addTransaction({ kind, amount, label: label.trim(), category, date, ...(clientName ? { clientName } : {}) });
     onClose();
   }
 
@@ -117,6 +123,32 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
           />
         )}
       </Field>
+
+      {kind === "income" && (
+        <Field label="Who was it? (optional)" help="Helps Second notice when a regular hasn't been back in a while.">
+          {(id) => (
+            <>
+              <input
+                id={id}
+                className={inputClass}
+                value={client}
+                maxLength={80}
+                autoComplete="off"
+                list={knownClients.length ? `${id}-clients` : undefined}
+                onChange={(e) => setClient(e.target.value)}
+                placeholder="Like “Sarah K.”"
+              />
+              {knownClients.length > 0 && (
+                <datalist id={`${id}-clients`}>
+                  {knownClients.map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              )}
+            </>
+          )}
+        </Field>
+      )}
 
       <fieldset className="m-0 border-0 p-0">
         <legend className="mb-1.5 p-0 text-[15px] font-medium">Kind</legend>

@@ -27,7 +27,11 @@ export type MoneyPlanRow = {
   saved: number | string;
 };
 
-export type TransactionRow = Omit<Transaction, "amount"> & { amount: number | string; user_id: string };
+export type TransactionRow = Omit<Transaction, "amount" | "clientName"> & {
+  amount: number | string;
+  user_id: string;
+  client_name?: string | null;
+};
 
 export function toBusiness(row: BusinessRow | null): Business | null {
   // A row can exist with only the mode set, before setup is finished.
@@ -75,11 +79,21 @@ export function moneyPlanRow(userId: string, p: MoneyPlan): MoneyPlanRow {
 }
 
 export function toTransaction(t: TransactionRow): Transaction {
-  return { id: t.id, date: t.date, kind: t.kind, amount: Number(t.amount), label: t.label, category: t.category };
+  return {
+    id: t.id,
+    date: t.date,
+    kind: t.kind,
+    amount: Number(t.amount),
+    label: t.label,
+    category: t.category,
+    ...(t.client_name ? { clientName: t.client_name } : {}),
+  };
 }
 
 export function transactionRow(userId: string, t: Transaction): TransactionRow {
-  return { ...t, user_id: userId };
+  const { clientName, ...rest } = t;
+  // client_name is only sent when there is one, so saving still works before week.sql adds the column.
+  return { ...rest, user_id: userId, ...(clientName ? { client_name: clientName } : {}) };
 }
 
 export type EventRow = {
@@ -151,7 +165,8 @@ export function eventRow(userId: string, e: CalendarEvent): EventRow {
 export const DATA_TABLES = ["events", "transactions", "roadmap_tasks", "money_plans", "businesses"] as const;
 
 /**
- * Also cleared by "Start over": what Second learned (notes) and its suggestion cards.
- * Not memory_runs (the AI cost log and daily cap) and not chat_messages (chat history stays).
+ * Also cleared by "Start over": what Second learned (notes), its suggestion cards, and this
+ * week's actions. Not memory_runs, weekly_plans or draft_runs (the AI cost logs and caps), and
+ * not chat_messages (chat history stays).
  */
-export const MEMORY_TABLES = ["chat_proposals", "business_notes"] as const;
+export const MEMORY_TABLES = ["chat_proposals", "business_notes", "plan_actions"] as const;

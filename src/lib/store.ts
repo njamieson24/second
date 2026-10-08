@@ -17,7 +17,8 @@ import type {
   ProposalStatus,
   SavedChatMessage,
 } from "./chat";
-import { SAMPLE_NOTES } from "./demo-content";
+import { SAMPLE_NOTES, sampleWeek } from "./demo-content";
+import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
 import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
 import { createSupabaseBackend } from "./store-supabase";
@@ -72,6 +73,8 @@ export type Transaction = {
   amount: number;
   label: string;
   category: string;
+  /** Income only, optional: who paid. Used to spot clients who haven't come back. */
+  clientName?: string;
 };
 
 // ---------- Calendar ----------
@@ -666,6 +669,81 @@ export async function clearNotes(): Promise<boolean> {
   const user = await currentUser();
   if (!user) return false;
   const { error } = await supabase().from("business_notes").delete().eq("user_id", user.id);
+  return !error;
+}
+
+// ---------- This Week (weekly game plan) ----------
+
+export type WeekResult = { ok: true; plan: WeekPlan; sample: boolean } | { ok: false; message: string };
+
+async function weekRequest(body: object): Promise<WeekResponse> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { status: "error", message: "Please log in." };
+  try {
+    const res = await fetch("/api/week", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...body, timeZone: deviceTimeZone() }),
+    });
+    return (await res.json()) as WeekResponse;
+  } catch {
+    return { status: "error", message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
+}
+
+/** Ask for the plan; if another tab is making it right now, wait for that one (never a second plan). */
+async function waitForPlan(first: WeekResponse): Promise<WeekResult> {
+  let res = first;
+  for (let i = 0; res.status === "pending" && i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await weekRequest({ action: "get" });
+  }
+  if (res.status === "ready") return { ok: true, plan: res.plan, sample: false };
+  if (res.status === "error") return { ok: false, message: res.message };
+  return { ok: false, message: "Your plan is taking longer than usual. Please refresh the page." };
+}
+
+async function isDemo(): Promise<boolean> {
+  return !(await currentUser()) && getKey(STORAGE_KEYS.demo) === "1";
+}
+
+/** This week's plan. Made the first time Home opens each week; read from the database after that. */
+export async function getWeekPlan(): Promise<WeekResult> {
+  if (await isDemo()) return { ok: true, plan: sampleWeek((await getMode()) ?? "running"), sample: true };
+  return waitForPlan(await weekRequest({ action: "get" }));
+}
+
+/** "Redo this week's plan" (2 a week). */
+export async function redoWeekPlan(): Promise<WeekResult> {
+  if (await isDemo()) return { ok: true, plan: sampleWeek((await getMode()) ?? "running"), sample: true };
+  return waitForPlan(await weekRequest({ action: "redo" }));
+}
+
+/** "Do it with Second": a draft for one action. The demo shows its sample draft (no AI). */
+export async function makeActionDraft(actionId: string): Promise<{ ok: true; draft: string } | { ok: false; message: string }> {
+  if (await isDemo()) {
+    const sample = sampleWeek((await getMode()) ?? "running").actions.find((a) => a.id === actionId)?.draft;
+    return sample ? { ok: true, draft: sample } : { ok: false, message: "This is a demo." };
+  }
+  const res = await weekRequest({ action: "draft", actionId });
+  return res.status === "draft" ? { ok: true, draft: res.draft } : { ok: false, message: res.status === "error" ? res.message : "Please try again." };
+}
+
+/** Done / Skip (feeds next week's plan). The demo keeps it on the page only. */
+export async function setActionStatus(actionId: string, status: ActionStatus): Promise<boolean> {
+  if (await isDemo()) return true;
+  const { error } = await supabase()
+    .from("plan_actions")
+    .update({ status, decided_at: status === "open" ? null : new Date().toISOString() })
+    .eq("id", actionId);
+  return !error;
+}
+
+/** Save the owner's edits to a draft. */
+export async function saveActionDraft(actionId: string, draft: string): Promise<boolean> {
+  if (await isDemo()) return true;
+  const { error } = await supabase().from("plan_actions").update({ draft: draft.slice(0, 3000) }).eq("id", actionId);
   return !error;
 }
 

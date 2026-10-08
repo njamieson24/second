@@ -13,6 +13,30 @@ export function formatMoney(amount: number): string {
   });
 }
 
+/**
+ * Client names already in the calendar and past income, one per person (ignoring capital
+ * letters), newest spelling first. Used to suggest names so the same client isn't counted twice.
+ */
+export function knownClientNames(transactions: Transaction[], events: { clientName?: string; start: string }[]): string[] {
+  const seen = new Map<string, { name: string; when: string }>();
+  const add = (raw: string | undefined, when: string) => {
+    const name = raw?.trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    const prev = seen.get(key);
+    if (!prev || when > prev.when) seen.set(key, { name, when });
+  };
+  transactions.forEach((t) => add(t.clientName, t.date));
+  events.forEach((e) => add(e.clientName, e.start));
+  return [...seen.values()].sort((a, b) => (a.when < b.when ? 1 : -1)).map((x) => x.name);
+}
+
+/** The saved spelling of a name if this client is already known (ignoring capital letters). */
+export function matchClientName(typed: string, known: string[]): string {
+  const name = typed.trim().replace(/\s+/g, " ");
+  return known.find((k) => k.toLowerCase() === name.toLowerCase()) ?? name;
+}
+
 export function sumCosts(lines: CostLine[]): number {
   return lines.reduce((total, line) => total + (Number.isFinite(line.amount) ? line.amount : 0), 0);
 }

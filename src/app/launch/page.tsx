@@ -6,7 +6,8 @@ import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { ComingSoon, EmptyState, SampleTag } from "@/components/EmptyStates";
-import { HeroCard, HeroRow } from "@/components/HeroCard";
+import { HeroCard } from "@/components/HeroCard";
+import { ThisWeek } from "@/components/ThisWeek";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ProgressBar } from "@/components/ProgressBar";
 import { RoadmapStepper } from "@/components/RoadmapStepper";
@@ -33,7 +34,7 @@ export default function LaunchHomePage() {
   const savingsGoal = sumCosts(moneyPlan.startupCosts);
   const savedPercent = savingsGoal > 0 ? Math.min(100, Math.round((moneyPlan.saved / savingsGoal) * 100)) : 0;
   const days = business.openingDay ? daysUntil(business.openingDay) : null;
-  const nextSteps = roadmap.nextTasks(3);
+  const nextSteps = roadmap.nextTasks(1);
 
   return (
     <PageBody>
@@ -46,6 +47,8 @@ export default function LaunchHomePage() {
           </Button>
         }
       />
+
+      <ThisWeek />
 
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <HeroCard
@@ -69,25 +72,17 @@ export default function LaunchHomePage() {
               </Button>
             </div>
           ) : (
-            <>
-              <h3 className="mt-1 mb-0 text-sm font-semibold text-on-dark">Your next steps</h3>
-              {nextSteps.map(({ task, stage }, i) => (
-                <HeroRow
-                  key={task.id}
-                  n={i + 1}
-                  title={task.title}
-                  detail={task.detail}
-                  action={
-                    <Button
-                      href={`/launch/roadmap?stage=${stage.id}&task=${task.id}`}
-                      variant={i === 0 ? "mint" : "ghost-dark"}
-                    >
-                      {i === 0 ? "Start" : "Show me how"}
-                    </Button>
-                  }
-                />
-              ))}
-            </>
+            nextSteps[0] && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-row bg-ink-2 px-4 py-3.5">
+                <div className="min-w-0">
+                  <div className="text-sm text-muted-dark">You&apos;re on</div>
+                  <div className="text-base font-medium">{nextSteps[0].task.title}</div>
+                </div>
+                <Button href={`/launch/roadmap?stage=${nextSteps[0].stage.id}&task=${nextSteps[0].task.id}`} variant="ghost-dark">
+                  Open roadmap
+                </Button>
+              </div>
+            )
           )}
         </HeroCard>
 

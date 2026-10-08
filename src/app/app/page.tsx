@@ -6,14 +6,14 @@ import { TodaySchedule } from "@/components/calendar/TodaySchedule";
 import { Card } from "@/components/Card";
 import { Chip } from "@/components/Chip";
 import { ChartEmptyNote, ComingSoon, SampleTag } from "@/components/EmptyStates";
-import { HeroCard, HeroRow } from "@/components/HeroCard";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { StatTile } from "@/components/StatTile";
 import { TextLink } from "@/components/TextLink";
+import { ThisWeek } from "@/components/ThisWeek";
 import { TipCard } from "@/components/TipCard";
 import { useLoadedData } from "@/lib/data";
 import { currentMonthKey, greeting, longDate, monthName, shiftMonth, todayISO, toISODate } from "@/lib/dates";
-import { gamePlan, ideas, newReplies } from "@/lib/demo-content";
+import { ideas, newReplies } from "@/lib/demo-content";
 import { changeFromLastMonth, formatMoney, keptHistory, monthTotals } from "@/lib/money";
 
 /** Monday of this week, as YYYY-MM-DD. */
@@ -52,43 +52,7 @@ export default function DashboardPage() {
       />
 
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
-        {showSamples ? (
-          <HeroCard eyebrow="This week's game plan" meta={gamePlan.timeNeeded} heading={gamePlan.heading} gap="sm">
-            <div className="-mt-2">
-              <SampleTag />
-            </div>
-            {gamePlan.moves.map((move, i) => (
-              <HeroRow
-                key={move.title}
-                n={i + 1}
-                badgeTone={move.primary ? "mint" : "sky-light"}
-                title={move.title}
-                detail={move.detail}
-                action={
-                  <Button
-                    href={move.href}
-                    variant={move.primary ? "mint" : "ghost-dark"}
-                    weight={move.primary ? "semibold" : "medium"}
-                    pad="tight"
-                  >
-                    {move.action}
-                  </Button>
-                }
-              />
-            ))}
-            <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[15px] text-on-dark">{gamePlan.footer}</span>
-              <Button variant="light" pad="wide">
-                Approve all {gamePlan.moves.length}
-              </Button>
-            </div>
-          </HeroCard>
-        ) : (
-          <ComingSoon
-            title="This week's game plan"
-            text="Each week, Second will draft 3 simple moves to grow your business, like emails to local gyms or posts for Instagram. You just say yes."
-          />
-        )}
+        <ThisWeek />
 
         <Card
           title="Money this month"
