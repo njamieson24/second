@@ -17,7 +17,8 @@ import type {
   ProposalStatus,
   SavedChatMessage,
 } from "./chat";
-import { SAMPLE_NOTES, sampleWeek } from "./demo-content";
+import { SAMPLE_NOTES, sampleContentWeek, sampleWeek } from "./demo-content";
+import type { ContentPost, ContentResponse, ContentWeek, PostStatus, TemplateSize, TemplateText } from "./content";
 import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
 import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
@@ -54,7 +55,14 @@ export type Business = {
   createdAt: string;
   /** Set when they graduate from Launch mode */
   launchedAt?: string;
+  /** The owner's own brand colors for their posts (#RRGGBB). Unset = the defaults in brand.ts */
+  brandPrimary?: string;
+  brandAccent?: string;
+  /** How captions sound. Unset = warm */
+  contentTone?: ContentTone;
 };
+
+export type ContentTone = "warm" | "fun" | "professional";
 
 export type CostLine = { id: string; label: string; amount: number };
 
@@ -745,6 +753,126 @@ export async function saveActionDraft(actionId: string, draft: string): Promise<
   if (await isDemo()) return true;
   const { error } = await supabase().from("plan_actions").update({ draft: draft.slice(0, 3000) }).eq("id", actionId);
   return !error;
+}
+
+// ---------- Content page ----------
+
+export type ContentWeekResult = { ok: true; week: ContentWeek; sample: boolean } | { ok: false; message: string };
+
+async function contentRequest(body: object): Promise<ContentResponse> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { status: "error", message: "Please log in." };
+  try {
+    const res = await fetch("/api/content", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...body, timeZone: deviceTimeZone() }),
+    });
+    return (await res.json()) as ContentResponse;
+  } catch {
+    return { status: "error", message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
+}
+
+async function waitForIdeas(first: ContentResponse): Promise<ContentWeekResult> {
+  let res = first;
+  for (let i = 0; res.status === "pending" && i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await contentRequest({ action: "get" });
+  }
+  if (res.status === "ready") return { ok: true, week: res.week, sample: false };
+  if (res.status === "error") return { ok: false, message: res.message };
+  return { ok: false, message: "Your ideas are taking longer than usual. Please refresh the page." };
+}
+
+/** This week's post ideas. Made the first time Content opens each week; read after that. */
+export async function getContentWeek(): Promise<ContentWeekResult> {
+  if (await isDemo()) return { ok: true, week: sampleContentWeek((await getMode()) ?? "running"), sample: true };
+  return waitForIdeas(await contentRequest({ action: "get" }));
+}
+
+/** "New ideas" (2 a week). Drafted, ready and posted ideas are kept. */
+export async function newContentIdeas(): Promise<ContentWeekResult> {
+  if (await isDemo()) return { ok: true, week: sampleContentWeek((await getMode()) ?? "running"), sample: true };
+  return waitForIdeas(await contentRequest({ action: "new" }));
+}
+
+/** "Write it": a caption plus the template's headline and line. `ownerWords` = what the owner typed (offer, quote). */
+export async function writeContentCaption(
+  postId: string,
+  ownerWords: string,
+): Promise<{ ok: true; caption: string; templateText: TemplateText } | { ok: false; message: string }> {
+  if (await isDemo()) {
+    const sample = sampleContentWeek((await getMode()) ?? "running").ideas.find((p) => p.id === postId);
+    return sample?.caption ? { ok: true, caption: sample.caption, templateText: sample.templateText ?? {} } : { ok: false, message: "This is a demo." };
+  }
+  const res = await contentRequest({ action: "caption", postId, ownerWords });
+  return res.status === "caption" ? { ok: true, caption: res.caption, templateText: res.templateText } : { ok: false, message: res.status === "error" ? res.message : "Please try again." };
+}
+
+export type ContentPostChanges = Partial<{
+  day: string;
+  status: PostStatus;
+  caption: string | null;
+  template: string | null;
+  templateSize: TemplateSize | null;
+  templateText: TemplateText | null;
+  postedAt: string | null;
+}>;
+
+/** Save changes to an idea or post (day, status, caption, template). The demo keeps them on the page only. */
+export async function updateContentPost(id: string, changes: ContentPostChanges): Promise<boolean> {
+  if (await isDemo()) return true;
+  const row: Record<string, unknown> = {};
+  if (changes.day !== undefined) row.day = changes.day;
+  if (changes.status !== undefined) row.status = changes.status;
+  if (changes.caption !== undefined) row.caption = changes.caption?.slice(0, 3000) ?? null;
+  if (changes.template !== undefined) row.template = changes.template;
+  if (changes.templateSize !== undefined) row.template_size = changes.templateSize;
+  if (changes.templateText !== undefined) row.template_text = changes.templateText;
+  if (changes.postedAt !== undefined) row.posted_at = changes.postedAt;
+  const { error } = await supabase().from("content_posts").update(row).eq("id", id);
+  return !error;
+}
+
+/** Posts on the content calendar between two dates (YYYY-MM-DD, inclusive). */
+export async function getContentPosts(from: string, to: string): Promise<ContentPost[]> {
+  if (await isDemo()) return sampleContentWeek((await getMode()) ?? "running").ideas.filter((p) => p.day >= from && p.day <= to);
+  const user = await currentUser();
+  if (!user) return [];
+  const { data, error } = await supabase().from("content_posts").select("*").eq("user_id", user.id).gte("day", from).lte("day", to).order("day");
+  if (error) return [];
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    weekStart: r.week_start,
+    position: r.position,
+    type: r.type,
+    title: r.title,
+    why: r.why,
+    source: r.source,
+    day: r.day,
+    status: r.status,
+    caption: r.caption,
+    template: r.template,
+    templateSize: r.template_size,
+    templateText: r.template_text,
+    postedAt: r.posted_at,
+  }));
+}
+
+/** Caption tone: warm (default), fun or professional. */
+export async function saveContentTone(tone: ContentTone): Promise<void> {
+  const business = await getBusiness();
+  if (business) await saveBusiness({ ...business, contentTone: tone });
+  await remote?.backend.settle(); // saved before the next caption is written
+}
+
+/** The owner's brand colors for post templates (#RRGGBB). */
+export async function saveBrandColors(primary: string, accent: string): Promise<void> {
+  const business = await getBusiness();
+  if (business) await saveBusiness({ ...business, brandPrimary: primary, brandAccent: accent });
+  await remote?.backend.settle();
 }
 
 // ---------- Beta sign-ups (public /beta page, no account) ----------

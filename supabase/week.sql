@@ -110,7 +110,8 @@ create policy "Add own rows" on public.draft_runs for insert to authenticated
   with check ((select auth.uid()) = user_id);
 
 -- ---------------------------------------------------------------------------
--- All AI costs per day: chat, notes, weekly plans and drafts. Not part of the setup above:
+-- All AI costs per day: chat, notes, weekly plans, drafts and captions, content ideas (needs content.sql).
+-- Not part of the setup above:
 --
 -- select day, kind, model, count(*) as calls, sum(input_tokens) as input_tokens, sum(output_tokens) as output_tokens
 -- from (
@@ -121,7 +122,9 @@ create policy "Add own rows" on public.draft_runs for insert to authenticated
 --   union all
 --   select date_trunc('day', created_at), 'plan', model, input_tokens, output_tokens from public.weekly_plans where not fallback
 --   union all
---   select date_trunc('day', created_at), 'draft', model, input_tokens, output_tokens from public.draft_runs
+--   select date_trunc('day', created_at), case when action_type = 'caption' then 'caption' else 'draft' end, model, input_tokens, output_tokens from public.draft_runs
+--   union all
+--   select date_trunc('day', created_at), 'content ideas', model, input_tokens, output_tokens from public.content_weeks where not fallback
 -- ) t
 -- group by 1, 2, 3
 -- order by 1 desc, 2;

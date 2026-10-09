@@ -18,6 +18,9 @@ export type BusinessRow = {
   launched_at: string | null;
   created_at: string;
   show_samples?: boolean | null;
+  brand_primary?: string | null;
+  brand_accent?: string | null;
+  content_tone?: Business["contentTone"] | null;
 };
 
 export type MoneyPlanRow = {
@@ -48,6 +51,9 @@ export function toBusiness(row: BusinessRow | null): Business | null {
     openingDay: row.opening_day ?? undefined,
     createdAt: row.created_at,
     launchedAt: row.launched_at ?? undefined,
+    ...(row.brand_primary ? { brandPrimary: row.brand_primary } : {}),
+    ...(row.brand_accent ? { brandAccent: row.brand_accent } : {}),
+    ...(row.content_tone ? { contentTone: row.content_tone } : {}),
   };
 }
 
@@ -66,6 +72,10 @@ export function businessProfileRow(userId: string, b: Business) {
     opening_day: b.openingDay ?? null,
     launched_at: b.launchedAt ?? null,
     created_at: b.createdAt,
+    // Only sent once set, so profile saves still work before content.sql adds the columns.
+    ...(b.brandPrimary ? { brand_primary: b.brandPrimary } : {}),
+    ...(b.brandAccent ? { brand_accent: b.brandAccent } : {}),
+    ...(b.contentTone ? { content_tone: b.contentTone } : {}),
   };
 }
 
@@ -165,8 +175,8 @@ export function eventRow(userId: string, e: CalendarEvent): EventRow {
 export const DATA_TABLES = ["events", "transactions", "roadmap_tasks", "money_plans", "businesses"] as const;
 
 /**
- * Also cleared by "Start over": what Second learned (notes), its suggestion cards, and this
- * week's actions. Not memory_runs, weekly_plans or draft_runs (the AI cost logs and caps), and
- * not chat_messages (chat history stays).
+ * Also cleared by "Start over": what Second learned (notes), its suggestion cards, this
+ * week's actions, and content ideas and posts. Not memory_runs, weekly_plans, draft_runs or
+ * content_weeks (the AI cost logs and caps), and not chat_messages (chat history stays).
  */
-export const MEMORY_TABLES = ["chat_proposals", "business_notes", "plan_actions"] as const;
+export const MEMORY_TABLES = ["chat_proposals", "business_notes", "plan_actions", "content_posts"] as const;

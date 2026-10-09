@@ -29,6 +29,8 @@ export type FactsInput = {
   /** The owner's own recent chat messages (never sent to Claude here; only used to allow real business names) */
   ownerChat: string[];
   lastWeek: LastWeekAction[];
+  /** Posts marked as posted on the Content page last week (optional) */
+  postedLastWeek?: number;
   /** Every check-in text the owner marked Done: client first name and when */
   doneTexts: { first: string; decidedAt: string }[];
   /** "Now", already moved forward by the test-only week offset */
@@ -54,6 +56,8 @@ export type Facts = {
   /** For the plain-code fallback plan */
   money: { gap: number; kept: number; goal: number } | null;
   freeDays: number;
+  /** Weekday names of the days with nothing booked, like ["Thu", "Fri"] */
+  freeDayNames: string[];
   launch: { steps: { title: string; stage: string }[]; done: number; total: number; daysToOpening: number | null } | null;
 };
 
@@ -137,6 +141,7 @@ export function weekFacts(input: FactsInput): Facts {
 
   let money: Facts["money"] = null;
   let freeDays = 0;
+  let freeDayNames: string[] = [];
   let lapsed: LapsedClient[] = [];
   let resting: RestingClient[] = [];
   let launch: Facts["launch"] = null;
@@ -164,6 +169,7 @@ export function weekFacts(input: FactsInput): Facts {
     const bookedDays = new Set(booked.map((o) => (o.allDay ? o.firstDay : dateKeyIn(o.start, timeZone))));
     const free = Array.from({ length: 7 }, (_, i) => addDaysToKey(today, i)).filter((k) => !bookedDays.has(k));
     freeDays = free.length;
+    freeDayNames = free.map((k) => dayLabel(k).split(",")[0]);
     lines.push(
       `Next seven days: ${booked.length} client ${booked.length === 1 ? "appointment" : "appointments"} booked; ${free.length} ${free.length === 1 ? "day" : "days"} with nothing booked (${free.map(dayLabel).join(", ") || "none"}). The app doesn't know their opening hours, so some of these may be days off.`,
     );
@@ -191,6 +197,7 @@ export function weekFacts(input: FactsInput): Facts {
     lines.push(daysToOpening !== null ? `Opening day: ${dayLabel(b.openingDay!)}, ${daysToOpening} days away.` : "No opening day picked yet.");
   }
 
+  if (input.postedLastWeek !== undefined) lines.push(`Social posts they marked as posted last week: ${input.postedLastWeek}.`);
   lines.push(input.notes.length ? `Notes from past chats:\n${input.notes.map((n) => `- ${n}`).join("\n")}` : "Notes from past chats: none.");
   lines.push(
     input.lastWeek.length
@@ -205,5 +212,5 @@ export function weekFacts(input: FactsInput): Facts {
   // Names that are the owner's own (their town, business, services, clients) are fine to mention.
   const ownNames = [b.area, b.businessName, b.ownerName, ...b.services.map((s) => s.name), ...lapsed.map((c) => c.first)];
   const skipped = input.lastWeek.filter((a) => a.status === "skipped").map((a) => ({ title: a.title, client: a.client_first_name ?? null }));
-  return { text, numbers, lapsed, resting, ownerText: [...ownNames, ...input.notes, ...input.ownerChat].join("\n"), money, freeDays, launch, skipped };
+  return { text, numbers, lapsed, resting, ownerText: [...ownNames, ...input.notes, ...input.ownerChat].join("\n"), money, freeDays, freeDayNames, launch, skipped };
 }
