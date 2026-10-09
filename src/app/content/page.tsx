@@ -1,20 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { Card } from "@/components/Card";
+import { BriefCard } from "@/components/content/BriefCard";
 import { ContentCalendar, calendarDays, type CalendarView } from "@/components/content/ContentCalendar";
 import { IdeaList } from "@/components/content/IdeaList";
-import { PostEditor } from "@/components/content/PostEditor";
 import { SampleTag } from "@/components/EmptyStates";
 import { PageBody, PageHeader } from "@/components/PageHeader";
-import { brandColors } from "@/lib/brand";
 import type { ContentPost, ContentWeek } from "@/lib/content";
 import { useLoadedData } from "@/lib/data";
 import { todayISO } from "@/lib/dates";
 import { getContentPosts, getContentWeek, newContentIdeas, saveContentTone, type ContentTone } from "@/lib/store";
 
-// Content: this week's post ideas, the editor (caption + branded template), and the content calendar.
-// Shared by both modes. The ideas load on their own; the rest of the page never waits for them.
+// Content: this week's post ideas as short creative briefs (what to post, format, phone shots,
+// hook, best day), captions, and the content calendar. Shared by both modes.
+// The briefs load on their own; the rest of the page never waits for them.
 
 export default function ContentPage() {
   return (
@@ -31,12 +32,12 @@ function Content() {
   const [problem, setProblem] = useState<string | null>(null);
   const [renewing, setRenewing] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [olderId, setOlderId] = useState<string | null>(null);
   const [view, setView] = useState<CalendarView>("week");
   const [anchor, setAnchor] = useState(todayISO());
   const [calPosts, setCalPosts] = useState<ContentPost[]>([]);
   const [tone, setTone] = useState<ContentTone>(business.contentTone ?? "warm");
-  const brand = useMemo(() => ({ ...brandColors(business), name: business.businessName || business.ownerName }), [business]);
 
   useEffect(() => {
     let live = true;
@@ -46,7 +47,6 @@ function Content() {
         setWeek(r.week);
         setSample(r.sample);
         setProblem(null);
-        setSelectedId((id) => id ?? r.week.ideas[0]?.id ?? null);
       } else setProblem(r.message);
     });
     return () => {
@@ -75,10 +75,8 @@ function Content() {
     setProblem(null);
     const r = await newContentIdeas();
     setRenewing(false);
-    if (r.ok) {
-      setWeek(r.week);
-      setSelectedId(r.week.ideas[0]?.id ?? null);
-    } else setProblem(r.message);
+    if (r.ok) setWeek(r.week);
+    else setProblem(r.message);
   }
 
   async function changeTone(t: ContentTone) {
@@ -86,29 +84,43 @@ function Content() {
     if (!sample) await saveContentTone(t);
   }
 
-  const selected = week?.ideas.find((p) => p.id === selectedId) ?? calPosts.find((p) => p.id === selectedId) ?? null;
+  /** Calendar: this week's posts scroll to their card; older posts open below the calendar. */
+  function openFromCalendar(id: string) {
+    if (week?.ideas.some((p) => p.id === id)) {
+      setOlderId(null);
+      setHighlightId(id);
+      document.getElementById(`brief-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else setOlderId(id);
+  }
+  const older = olderId ? calPosts.find((p) => p.id === olderId) ?? null : null;
 
   return (
     <PageBody>
       <PageHeader
         title="Content"
-        subtitle="Post ideas, captions and images for this week. You post them yourself."
+        subtitle="Shoot it on your phone. Real beats perfect."
         eyebrow={sample || account?.kind === "demo" ? <SampleTag /> : undefined}
       />
       <IdeaList
         week={week}
         loading={!week && !problem}
         problem={problem}
-        selectedId={selectedId}
+        highlightId={highlightId}
         tone={tone}
         renewing={renewing}
-        onSelect={setSelectedId}
+        onChange={update}
         onTone={changeTone}
         onNewIdeas={renew}
         onRetry={() => setAttempt((n) => n + 1)}
       />
-      {selected && <PostEditor key={selected.id} post={selected} brand={brand} onChange={(c) => update(selected.id, c)} />}
-      <ContentCalendar view={view} anchor={anchor} posts={calPosts} selectedId={selectedId} onView={setView} onAnchor={setAnchor} onSelect={setSelectedId} />
+      <ContentCalendar view={view} anchor={anchor} posts={calPosts} selectedId={highlightId ?? olderId} onView={setView} onAnchor={setAnchor} onSelect={openFromCalendar} />
+      {older && (
+        <Card title="From an earlier week" padding="lg">
+          <div className="on-dark mt-3 rounded-row bg-panel p-2 text-on-panel">
+            <BriefCard key={older.id} post={older} onChange={(c) => update(older.id, c)} />
+          </div>
+        </Card>
+      )}
     </PageBody>
   );
 }

@@ -18,7 +18,7 @@ import type {
   SavedChatMessage,
 } from "./chat";
 import { SAMPLE_NOTES, sampleContentWeek, sampleWeek } from "./demo-content";
-import type { ContentPost, ContentResponse, ContentWeek, PostStatus, TemplateSize, TemplateText } from "./content";
+import type { ContentPost, ContentResponse, ContentWeek, PostStatus } from "./content";
 import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
 import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
@@ -55,9 +55,6 @@ export type Business = {
   createdAt: string;
   /** Set when they graduate from Launch mode */
   launchedAt?: string;
-  /** The owner's own brand colors for their posts (#RRGGBB). Unset = the defaults in brand.ts */
-  brandPrimary?: string;
-  brandAccent?: string;
   /** How captions sound. Unset = warm */
   contentTone?: ContentTone;
 };
@@ -798,39 +795,32 @@ export async function newContentIdeas(): Promise<ContentWeekResult> {
   return waitForIdeas(await contentRequest({ action: "new" }));
 }
 
-/** "Write it": a caption plus the template's headline and line. `ownerWords` = what the owner typed (offer, quote). */
-export async function writeContentCaption(
-  postId: string,
-  ownerWords: string,
-): Promise<{ ok: true; caption: string; templateText: TemplateText } | { ok: false; message: string }> {
+/** "Write caption": the caption and hashtags that follow the hook. */
+export async function writeContentCaption(postId: string): Promise<{ ok: true; caption: string } | { ok: false; message: string }> {
   if (await isDemo()) {
     const sample = sampleContentWeek((await getMode()) ?? "running").ideas.find((p) => p.id === postId);
-    return sample?.caption ? { ok: true, caption: sample.caption, templateText: sample.templateText ?? {} } : { ok: false, message: "This is a demo." };
+    return sample?.caption ? { ok: true, caption: sample.caption } : { ok: false, message: "In the demo, captions are samples. Make an account to write your own." };
   }
-  const res = await contentRequest({ action: "caption", postId, ownerWords });
-  return res.status === "caption" ? { ok: true, caption: res.caption, templateText: res.templateText } : { ok: false, message: res.status === "error" ? res.message : "Please try again." };
+  const res = await contentRequest({ action: "caption", postId });
+  return res.status === "caption" ? { ok: true, caption: res.caption } : { ok: false, message: res.status === "error" ? res.message : "Please try again." };
 }
 
-export type ContentPostChanges = Partial<{
-  day: string;
-  status: PostStatus;
-  caption: string | null;
-  template: string | null;
-  templateSize: TemplateSize | null;
-  templateText: TemplateText | null;
-  postedAt: string | null;
-}>;
+/** Save an edited hook. The server checks it (health, prices, offers, client names) first. */
+export async function saveContentHook(postId: string, hook: string): Promise<{ ok: true; hook: string } | { ok: false; message: string }> {
+  if (await isDemo()) return { ok: true, hook: hook.trim() };
+  const res = await contentRequest({ action: "hook", postId, hook });
+  return res.status === "hook" ? { ok: true, hook: res.hook } : { ok: false, message: res.status === "error" ? res.message : "Please try again." };
+}
 
-/** Save changes to an idea or post (day, status, caption, template). The demo keeps them on the page only. */
+export type ContentPostChanges = Partial<{ day: string; status: PostStatus; caption: string | null; postedAt: string | null }>;
+
+/** Save changes to an idea (day, status, caption). The demo keeps them on the page only. */
 export async function updateContentPost(id: string, changes: ContentPostChanges): Promise<boolean> {
   if (await isDemo()) return true;
   const row: Record<string, unknown> = {};
   if (changes.day !== undefined) row.day = changes.day;
   if (changes.status !== undefined) row.status = changes.status;
   if (changes.caption !== undefined) row.caption = changes.caption?.slice(0, 3000) ?? null;
-  if (changes.template !== undefined) row.template = changes.template;
-  if (changes.templateSize !== undefined) row.template_size = changes.templateSize;
-  if (changes.templateText !== undefined) row.template_text = changes.templateText;
   if (changes.postedAt !== undefined) row.posted_at = changes.postedAt;
   const { error } = await supabase().from("content_posts").update(row).eq("id", id);
   return !error;
@@ -853,10 +843,10 @@ export async function getContentPosts(from: string, to: string): Promise<Content
     source: r.source,
     day: r.day,
     status: r.status,
+    format: r.format ?? null,
+    shots: Array.isArray(r.shots) ? r.shots : null,
+    hook: r.hook ?? null,
     caption: r.caption,
-    template: r.template,
-    templateSize: r.template_size,
-    templateText: r.template_text,
     postedAt: r.posted_at,
   }));
 }
@@ -866,13 +856,6 @@ export async function saveContentTone(tone: ContentTone): Promise<void> {
   const business = await getBusiness();
   if (business) await saveBusiness({ ...business, contentTone: tone });
   await remote?.backend.settle(); // saved before the next caption is written
-}
-
-/** The owner's brand colors for post templates (#RRGGBB). */
-export async function saveBrandColors(primary: string, accent: string): Promise<void> {
-  const business = await getBusiness();
-  if (business) await saveBusiness({ ...business, brandPrimary: primary, brandAccent: accent });
-  await remote?.backend.settle();
 }
 
 // ---------- Beta sign-ups (public /beta page, no account) ----------

@@ -18,8 +18,6 @@ export type BusinessRow = {
   launched_at: string | null;
   created_at: string;
   show_samples?: boolean | null;
-  brand_primary?: string | null;
-  brand_accent?: string | null;
   content_tone?: Business["contentTone"] | null;
 };
 
@@ -51,8 +49,6 @@ export function toBusiness(row: BusinessRow | null): Business | null {
     openingDay: row.opening_day ?? undefined,
     createdAt: row.created_at,
     launchedAt: row.launched_at ?? undefined,
-    ...(row.brand_primary ? { brandPrimary: row.brand_primary } : {}),
-    ...(row.brand_accent ? { brandAccent: row.brand_accent } : {}),
     ...(row.content_tone ? { contentTone: row.content_tone } : {}),
   };
 }
@@ -73,8 +69,6 @@ export function businessProfileRow(userId: string, b: Business) {
     launched_at: b.launchedAt ?? null,
     created_at: b.createdAt,
     // Only sent once set, so profile saves still work before content.sql adds the columns.
-    ...(b.brandPrimary ? { brand_primary: b.brandPrimary } : {}),
-    ...(b.brandAccent ? { brand_accent: b.brandAccent } : {}),
     ...(b.contentTone ? { content_tone: b.contentTone } : {}),
   };
 }

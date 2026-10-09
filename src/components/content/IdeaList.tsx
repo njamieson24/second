@@ -2,9 +2,8 @@
 
 import { RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "../Button";
-import { Chip } from "../Chip";
-import { POST_STATUS_LABELS, POST_TYPE_LABELS, type ContentPost, type ContentWeek } from "@/lib/content";
-import { dayLabel } from "@/lib/dates";
+import { BriefCard } from "./BriefCard";
+import type { ContentPost, ContentWeek } from "@/lib/content";
 import type { ContentTone } from "@/lib/store";
 
 const TONES: { id: ContentTone; label: string }[] = [
@@ -13,17 +12,15 @@ const TONES: { id: ContentTone; label: string }[] = [
   { id: "professional", label: "Professional" },
 ];
 
-const statusTone = (s: ContentPost["status"]) => (s === "posted" || s === "ready" ? "mint" : s === "drafted" ? "sky" : "neutral");
-
-/** "This week's ideas": 5 post ideas, the tone setting, and "New ideas". */
+/** "This week's ideas": 5 creative briefs, the caption tone, and "New ideas". */
 export function IdeaList({
   week,
   loading,
   problem,
-  selectedId,
+  highlightId,
   tone,
   renewing,
-  onSelect,
+  onChange,
   onTone,
   onNewIdeas,
   onRetry,
@@ -31,10 +28,10 @@ export function IdeaList({
   week: ContentWeek | null;
   loading: boolean;
   problem: string | null;
-  selectedId: string | null;
+  highlightId: string | null;
   tone: ContentTone;
   renewing: boolean;
-  onSelect: (id: string) => void;
+  onChange: (id: string, changes: Partial<ContentPost>) => void;
   onTone: (t: ContentTone) => void;
   onNewIdeas: () => void;
   onRetry: () => void;
@@ -43,25 +40,30 @@ export function IdeaList({
     <section
       aria-labelledby="ideas-title"
       aria-busy={loading || renewing}
-      className="on-dark flex flex-col gap-4 rounded-card bg-panel p-5 text-on-panel ring-1 ring-ink-line desk:p-7"
+      className="on-dark flex flex-col gap-4 rounded-card bg-panel p-4 text-on-panel ring-1 ring-ink-line desk:p-7"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 id="ideas-title" className="m-0 text-[22px] font-semibold tracking-[-0.4px]">
           This week&apos;s ideas
         </h2>
-        <div role="radiogroup" aria-label="Caption tone" className="flex gap-1 rounded-xl bg-ink-2 p-1">
-          {TONES.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="radio"
-              aria-checked={tone === t.id}
-              onClick={() => onTone(t.id)}
-              className={`min-h-11 rounded-lg px-3 text-sm ${tone === t.id ? "bg-ink-line font-semibold text-on-panel" : "text-on-dark hover:text-on-panel"}`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-on-dark" id="tone-label">
+            Caption tone
+          </span>
+          <div role="radiogroup" aria-labelledby="tone-label" className="flex gap-1 rounded-xl bg-ink-2 p-1">
+            {TONES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={tone === t.id}
+                onClick={() => onTone(t.id)}
+                className={`min-h-11 rounded-lg px-3 text-sm ${tone === t.id ? "bg-ink-line font-semibold text-on-panel" : "text-on-dark hover:text-on-panel"}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -69,10 +71,10 @@ export function IdeaList({
         <div className="flex flex-col gap-3" role="status">
           <p className="m-0 flex items-center gap-2 text-[15px] text-on-dark">
             <Sparkles size={16} aria-hidden="true" className="text-panel-accent" />
-            {renewing ? "Second is thinking of new ideas…" : "Second is thinking of post ideas…"}
+            {renewing ? "Second is thinking of new ideas…" : "Second is planning this week's posts…"}
           </p>
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-[64px] animate-pulse rounded-row bg-ink-2 motion-reduce:animate-none" aria-hidden="true" />
+            <div key={i} className="h-[120px] animate-pulse rounded-row bg-ink-2 motion-reduce:animate-none" aria-hidden="true" />
           ))}
         </div>
       )}
@@ -90,41 +92,19 @@ export function IdeaList({
 
       {week && !renewing && (
         <>
-          <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 desk:grid-cols-2">
-            {week.ideas.map((idea) => {
-              const selected = idea.id === selectedId;
-              return (
-                <li key={idea.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelect(idea.id)}
-                    aria-pressed={selected}
-                    className={`flex h-full w-full flex-col items-start gap-1 rounded-row bg-ink-2 px-4 py-3.5 text-left ${selected ? "ring-2 ring-panel-accent" : "hover:ring-1 hover:ring-ink-edge"}`}
-                  >
-                    <span className="flex w-full flex-wrap items-center justify-between gap-2">
-                      <span className="text-[13px] font-semibold text-panel-accent">
-                        {idea.source === "this_week" ? "From This Week · " : ""}
-                        {POST_TYPE_LABELS[idea.type]} · {dayLabel(idea.day, true).split(",")[0]}
-                      </span>
-                      <Chip tone={statusTone(idea.status)} size="sm">
-                        {POST_STATUS_LABELS[idea.status]}
-                      </Chip>
-                    </span>
-                    <span className="text-base font-medium">{idea.title}</span>
-                    <span className="text-sm text-muted-dark">{idea.why}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="grid grid-cols-1 gap-3 desk:grid-cols-2 desk:gap-4">
+            {week.ideas.map((idea) => (
+              <BriefCard key={idea.id} post={idea} highlighted={idea.id === highlightId} onChange={(c) => onChange(idea.id, c)} />
+            ))}
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-sm text-muted-dark">Tap an idea to write it and make the image.</span>
+            <span className="text-sm text-on-dark">Copy puts the hook, caption and hashtags together, ready to paste.</span>
             {week.newIdeasLeft > 0 ? (
               <Button size="sm" variant="ghost-dark" weight="medium" icon={<RotateCcw size={15} aria-hidden="true" />} onClick={onNewIdeas}>
                 New ideas ({week.newIdeasLeft} left)
               </Button>
             ) : (
-              <span className="text-sm text-muted-dark">You&apos;ve used this week&apos;s new ideas.</span>
+              <span className="text-sm text-on-dark">You&apos;ve used this week&apos;s new ideas.</span>
             )}
           </div>
         </>

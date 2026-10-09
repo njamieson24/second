@@ -1,22 +1,25 @@
-// Content page: weekly post ideas and captions. Runs on the SERVER only.
+// Content page: weekly post briefs and captions. Runs on the SERVER only.
 //
-// - Ideas: made the first time the owner opens Content each week (Monday start, their time zone),
+// - Briefs: made the first time the owner opens Content each week (Monday start, their time zone),
 //   then read from the database. "New ideas" works at most 2 times a week. A try is claimed in
 //   content_weeks (unique on user + week + attempt) BEFORE the AI call.
 // - Plain code works out the facts (the same as This Week, minus client names); one Haiku call
-//   picks the ideas with a tool; the server checks them, retries once, then uses plain-code ideas.
+//   writes 5 briefs (what to post, format, 2-3 phone shots, hook, best day) with a tool; the server
+//   checks them (health, prices, offers, client names, phone-only and one-person shots), retries
+//   once, then uses plain-code briefs.
 // - If This Week has a post action, it's the first idea, so the two pages agree.
-// - Captions: one Haiku call (300 tokens) that also writes the template headline and line. The
-//   server checks for made-up prices or offers, client names, health claims and hashtags. Counts
-//   toward DRAFTS_DAILY_LIMIT (logged in draft_runs as 'caption').
-// - Everything is read and written AS the owner (row level security). Ideas and captions are
-//   never logged. Template images are drawn in the browser: no server cost.
+// - Captions: one Haiku call (300 tokens), the caption and hashtags only, checked the same way.
+//   Counts toward DRAFTS_DAILY_LIMIT (logged in draft_runs as 'caption').
+// - Hooks: owners can edit them; the server checks the new hook before saving it.
+// - Everything is read and written AS the owner (row level security). Briefs, hooks and captions
+//   are never logged.
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
-import { IDEA_TRIES, IDEAS_PER_WEEK, type ContentPost, type ContentResponse, type ContentWeek, type PostStatus, type PostType, type TemplateText } from "@/lib/content";
+import { IDEA_TRIES, IDEAS_PER_WEEK, type ContentPost, type ContentResponse, type ContentWeek, type PostFormat, type PostStatus, type PostType } from "@/lib/content";
 import {
+  briefFor,
   CAPTION_MAX_TOKENS,
   CAPTION_TOOL,
   captionPrompt,
@@ -26,12 +29,14 @@ import {
   contentFacts,
   daysLeftInWeek,
   fallbackIdeas,
+  hookProblems,
   IDEAS_MAX_TOKENS,
+  keepGoodIdeas,
   IDEAS_SYSTEM,
   ideasTool,
   localTags,
-  templateTextFor,
   type PlannedIdea,
+  type TextRules,
 } from "@/lib/content-plan";
 import { toBusiness, toEvent, toTransaction, type BusinessRow, type EventRow, type TransactionRow } from "@/lib/db-rows";
 import { formatMoney, knownClientNames } from "@/lib/money";
@@ -61,10 +66,10 @@ type PostRow = {
   plan_action_id: string | null;
   day: string;
   status: PostStatus;
+  format: PostFormat | null;
+  shots: string[] | null;
+  hook: string | null;
   caption: string | null;
-  template: string | null;
-  template_size: ContentPost["templateSize"];
-  template_text: TemplateText | null;
   posted_at: string | null;
 };
 const toPost = (r: PostRow): ContentPost => ({
@@ -77,12 +82,19 @@ const toPost = (r: PostRow): ContentPost => ({
   source: r.source,
   day: r.day,
   status: r.status,
+  format: r.format ?? null,
+  shots: Array.isArray(r.shots) ? r.shots : null,
+  hook: r.hook ?? null,
   caption: r.caption,
-  template: r.template,
-  templateSize: r.template_size,
-  templateText: r.template_text,
   postedAt: r.posted_at,
 });
+
+const servicesLine = (b: Business) => b.services.map((s) => `${s.name} ${formatMoney(s.price)}${s.minutes ? ` (${s.minutes} min)` : ""}`).join("; ");
+
+async function clientNamesOf(db: SupabaseClient, userId: string): Promise<string[]> {
+  const [txs, evs] = await Promise.all([db.from("transactions").select("*").eq("user_id", userId), db.from("events").select("*").eq("user_id", userId)]);
+  return knownClientNames(((txs.data ?? []) as TransactionRow[]).map(toTransaction), ((evs.data ?? []) as EventRow[]).map(toEvent));
+}
 
 export async function POST(request: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -98,11 +110,12 @@ export async function POST(request: Request) {
   const user = userData?.user;
   if (!user) return send({ status: "error", message: "Please log in again." }, 401);
 
-  const body = (await request.json().catch(() => ({}))) as { action?: string; postId?: unknown; ownerWords?: unknown; timeZone?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { action?: string; postId?: unknown; hook?: unknown; timeZone?: unknown };
   const timeZone = validTimeZone(body.timeZone);
   const now = new Date(Date.now() + intSetting("PLAN_WEEK_OFFSET", 0) * 7 * DAY);
   const today = dateKeyIn(now, timeZone);
   const weekStart = mondayOf(today);
+  const postId = typeof body.postId === "string" ? body.postId : "";
 
   const bizRes = await db.from("businesses").select("*").eq("user_id", user.id).maybeSingle();
   const business = toBusiness(bizRes.data as BusinessRow | null);
@@ -110,12 +123,10 @@ export async function POST(request: Request) {
   const mode: Mode = (bizRes.data as { mode?: Mode }).mode === "launch" ? "launch" : "running";
   const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 25_000 }) : null;
 
-  if (body.action === "caption") {
-    const ownerWords = typeof body.ownerWords === "string" ? body.ownerWords.slice(0, 500) : "";
-    return writeCaption(db, user.id, anthropic, business, typeof body.postId === "string" ? body.postId : "", ownerWords, now, timeZone, weekStart, mode);
-  }
+  if (body.action === "caption") return writeCaption(db, user.id, anthropic, business, postId, mode);
+  if (body.action === "hook") return saveHook(db, user.id, business, postId, typeof body.hook === "string" ? body.hook : "");
 
-  // ---------- Ideas ----------
+  // ---------- Briefs ----------
   const batchesRes = await db.from("content_weeks").select("id, mode, attempt, fallback, status, created_at").eq("user_id", user.id).eq("week_start", weekStart).order("attempt", { ascending: false });
   if (batchesRes.error) {
     console.error("content: content_weeks problem", batchesRes.error.code);
@@ -135,12 +146,12 @@ export async function POST(request: Request) {
     const fresh = latest.mode === mode && Date.parse(latest.created_at) >= Date.parse(business.createdAt);
     const posts = await weekPosts(db, user.id, weekStart);
     if (fresh && posts.length > 0) {
-      await syncPinned(db, user.id, weekStart, today, posts, pinned);
+      await syncPinned(db, user.id, weekStart, today, pinned, business);
       return send({ status: "ready", week: weekOf(weekStart, await weekPosts(db, user.id, weekStart), aiTries) });
     }
   }
 
-  // ---------- Make ideas: claim the try FIRST ----------
+  // ---------- Make briefs: claim the try FIRST ----------
   const useAI = aiTries < IDEA_TRIES && anthropic !== null;
   const batchId = randomUUID();
   const claim = await db.from("content_weeks").insert({ id: batchId, user_id: user.id, week_start: weekStart, mode, attempt: (latest?.attempt ?? 0) + 1, fallback: !useAI, status: "pending" });
@@ -150,7 +161,8 @@ export async function POST(request: Request) {
     return send({ status: "error", message: "We couldn't make your ideas just now. Please try again." }, 500);
   }
 
-  const { facts } = await gatherFacts(db, user.id, business, mode, weekStart, now, timeZone);
+  const { facts, transactions, events } = await gatherFacts(db, user.id, business, mode, weekStart, now, timeZone);
+  const rules: TextRules = { servicePrices: business.services.map((s) => s.price), clientNames: knownClientNames(transactions, events), ownerText: facts.ownerText };
   const threeWeeksAgo = addDaysToKey(weekStart, -21);
   const [recentRes, postedRes] = await Promise.all([
     db.from("content_posts").select("type, title, week_start").eq("user_id", user.id).gte("week_start", threeWeeksAgo).order("week_start", { ascending: false }).limit(40),
@@ -161,14 +173,14 @@ export async function POST(request: Request) {
   const recentTitles = recent.map((r) => r.title);
   const days = daysLeftInWeek(weekStart, today);
   const want = IDEAS_PER_WEEK - (pinned ? 1 : 0);
-  const main = business.services[0] ? { name: business.services[0].name, price: business.services[0].price } : null;
+  const main = business.services[0] ? { name: business.services[0].name, price: business.services[0].price, minutes: business.services[0].minutes } : null;
 
   let ideas: PlannedIdea[] = fallbackIdeas(facts, mode, want, days.names, main);
   let usage = { model: null as string | null, input: 0, output: 0 };
   let aiOk = false;
   if (useAI && anthropic) {
     const text = contentFacts(facts, recentTypes, recentTitles, postedRes.count ?? 0, days.names);
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: `Facts for this week:\n${text}\n\nGive exactly ${want} post ideas.` }];
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: `Facts for this week:\n${text}\n\nGive exactly ${want} post briefs.` }];
     try {
       for (let round = 0; round < 2; round++) {
         const res = await anthropic.messages.create({
@@ -181,10 +193,22 @@ export async function POST(request: Request) {
         });
         usage = { model: res.model, input: usage.input + res.usage.input_tokens, output: usage.output + res.usage.output_tokens };
         const call = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-        const checked = res.stop_reason === "max_tokens" || !call ? { ok: false as const, problems: ["the list was cut off; keep it shorter"] } : checkIdeas(call.input, want, facts, mode, days.names, recentTitles);
+        const checked =
+          res.stop_reason === "max_tokens" || !call
+            ? { ok: false as const, problems: ["the list was cut off; keep it shorter"] }
+            : checkIdeas(call.input, want, facts, mode, days.names, recentTitles, rules);
         if (checked.ok) {
           ideas = checked.ideas;
           aiOk = true;
+          break;
+        }
+        if (round === 1 && checked.ideas && checked.bad) {
+          // Second try still has problems: keep the good AI briefs, swap only the failing ones.
+          const kept = keepGoodIdeas(checked.ideas, checked.bad, ideas, mode);
+          if (kept) {
+            ideas = kept;
+            aiOk = true;
+          }
           break;
         }
         if (!call) break;
@@ -219,10 +243,13 @@ export async function POST(request: Request) {
       source: aiOk ? "ai" : "fallback",
       day: day < today ? today : day,
       status: "idea",
+      format: idea.format,
+      shots: idea.shots,
+      hook: idea.hook,
     };
   });
   const saved = await db.from("content_posts").insert(rows);
-  await syncPinned(db, user.id, weekStart, today, existing, pinned);
+  await syncPinned(db, user.id, weekStart, today, pinned, business);
   await db.from("content_weeks").update({ status: "ready", model: usage.model, input_tokens: usage.input, output_tokens: usage.output }).eq("id", batchId);
   if (saved.error) {
     console.error("content: couldn't save ideas", saved.error.code);
@@ -250,19 +277,20 @@ async function thisWeekPost(db: SupabaseClient, userId: string, weekStart: strin
   return (data?.[0] as { id: string; title: string; why: string; draft: string | null } | undefined) ?? null;
 }
 
-/** Make sure This Week's post is the first idea (once). */
+/** Make sure This Week's post is the first idea (once), with a ready-made brief. */
 async function syncPinned(
   db: SupabaseClient,
   userId: string,
   weekStart: string,
   today: string,
-  posts: ContentPost[],
   pinned: { id: string; title: string; why: string; draft: string | null } | null,
+  business: Business,
 ) {
   if (!pinned) return;
   const { data } = await db.from("content_posts").select("id").eq("user_id", userId).eq("plan_action_id", pinned.id).limit(1);
   if (data?.length) return;
-  void posts;
+  const s = business.services[0];
+  const brief = briefFor("promo", { service: s ? { name: s.name, price: s.price, minutes: s.minutes } : null, freeDayNames: [], daysToOpening: null });
   await db.from("content_posts").insert({
     id: randomUUID(),
     user_id: userId,
@@ -276,22 +304,12 @@ async function syncPinned(
     day: today,
     status: pinned.draft ? "drafted" : "idea",
     caption: pinned.draft,
+    ...brief,
   });
 }
 
-/** "Write it": a caption plus the template's headline and line, checked, saved. */
-async function writeCaption(
-  db: SupabaseClient,
-  userId: string,
-  anthropic: Anthropic | null,
-  business: Business,
-  postId: string,
-  ownerWords: string,
-  now: Date,
-  timeZone: string,
-  weekStart: string,
-  mode: Mode,
-) {
+/** "Write caption": the caption and hashtags that follow the hook, checked, saved. */
+async function writeCaption(db: SupabaseClient, userId: string, anthropic: Anthropic | null, business: Business, postId: string, mode: Mode) {
   if (!anthropic) return send({ status: "error", message: "Captions aren't working right now. Please try again later." }, 500);
   const dayAgo = new Date(Date.now() - DAY).toISOString();
   const [count, postRes] = await Promise.all([
@@ -300,34 +318,24 @@ async function writeCaption(
   ]);
   const limit = intSetting("DRAFTS_DAILY_LIMIT", DRAFTS_DAILY_LIMIT);
   if ((count.count ?? 0) >= limit) return send({ status: "error", message: `You've written today's ${limit} drafts and captions. You can write more tomorrow.` }, 429);
-  const post = postRes.data as (PostRow & { plan_action_id: string | null }) | null;
+  const post = postRes.data as PostRow | null;
   if (!post) return send({ status: "error", message: "We couldn't find that idea. Please refresh the page." }, 404);
 
-  const [notesRes, txs, evs] = await Promise.all([
+  const [notesRes, clientNames] = await Promise.all([
     db.from("business_notes").select("note").eq("user_id", userId).order("updated_at", { ascending: false }).limit(10),
-    db.from("transactions").select("*").eq("user_id", userId),
-    db.from("events").select("*").eq("user_id", userId),
+    clientNamesOf(db, userId),
   ]);
-  const clientNames = knownClientNames(((txs.data ?? []) as TransactionRow[]).map(toTransaction), ((evs.data ?? []) as EventRow[]).map(toEvent));
-  const words = [ownerWords, post.template_text?.quote ?? "", post.template_text?.offer ?? ""].filter(Boolean).join(" ");
   const tags = localTags(business.area);
   const prompt = captionPrompt({
-    idea: { type: post.type, title: post.title, why: post.why },
+    idea: { type: post.type, title: post.title, why: post.why, format: post.format, hook: post.hook },
     tone: business.contentTone ?? "warm",
-    business: {
-      ownerName: business.ownerName,
-      businessName: business.businessName,
-      typeLabel: business.typeLabel,
-      area: business.area,
-      services: business.services.map((s) => `${s.name} ${formatMoney(s.price)}${s.minutes ? ` (${s.minutes} min)` : ""}`).join("; "),
-    },
-    ownerWords: words,
+    business: { ownerName: business.ownerName, businessName: business.businessName, typeLabel: business.typeLabel, area: business.area, services: servicesLine(business) },
     notes: (notesRes.data ?? []).map((n) => n.note as string),
     localTags: tags,
     openingDay: mode === "launch" ? business.openingDay ?? null : null,
   });
 
-  let result: { caption: string; headline: string; line: string } | null = null;
+  let caption: string | null = null;
   let usage = { model: CONTENT_MODEL, input: 0, output: 0 };
   try {
     const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt.user }];
@@ -342,14 +350,13 @@ async function writeCaption(
       });
       usage = { model: res.model, input: usage.input + res.usage.input_tokens, output: usage.output + res.usage.output_tokens };
       const call = res.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-      const out = call?.input as { caption?: string; headline?: string; line?: string } | undefined;
-      const candidate = { caption: (out?.caption ?? "").trim(), headline: (out?.headline ?? "").trim(), line: (out?.line ?? "").trim() };
+      const candidate = ((call?.input as { caption?: string } | undefined)?.caption ?? "").trim();
       const problems =
         res.stop_reason === "max_tokens" || !call
           ? ["the caption was cut off; keep it shorter"]
-          : checkCaption(candidate, { servicePrices: business.services.map((s) => s.price), ownerWords: words, clientNames, localTags: tags });
+          : checkCaption(candidate, { servicePrices: business.services.map((s) => s.price), clientNames, localTags: tags, hook: post.hook });
       if (!problems.length) {
-        result = candidate;
+        caption = candidate;
         break;
       }
       if (!call) break;
@@ -367,22 +374,24 @@ async function writeCaption(
       if (error) console.error("content: couldn't log the caption", error.code);
     }
   }
-  if (!result) return send({ status: "error", message: "We couldn't write a good caption for that one. Please try again." }, 502);
+  if (!caption) return send({ status: "error", message: "We couldn't write a good caption for that one. Please try again." }, 502);
 
-  // Numbers on templates come from saved data, never from the AI.
-  const { facts } = await gatherFacts(db, userId, business, mode, weekStart, now, timeZone);
-  const service = business.services.find((s) => post.title.toLowerCase().includes(s.name.toLowerCase())) ?? business.services[0];
-  const templateText: TemplateText = {
-    ...(post.template_text ?? {}),
-    ...templateTextFor(result, {
-      price: service ? `${formatMoney(service.price)}${service.minutes ? ` · ${service.minutes} min` : ""}` : null,
-      days: facts.freeDayNames.length ? facts.freeDayNames.join(" · ") : null,
-      countdown: facts.launch?.daysToOpening != null && facts.launch.daysToOpening >= 0 ? String(facts.launch.daysToOpening) : null,
-    }),
-  };
   const status: PostStatus = post.status === "idea" ? "drafted" : post.status;
-  const saved = await db.from("content_posts").update({ caption: result.caption, template_text: templateText, status }).eq("id", post.id);
+  const saved = await db.from("content_posts").update({ caption, status }).eq("id", post.id);
   if (saved.error) console.error("content: couldn't save the caption", saved.error.code);
-  if (post.plan_action_id) await db.from("plan_actions").update({ draft: result.caption }).eq("id", post.plan_action_id);
-  return send({ status: "caption", caption: result.caption, templateText });
+  if (post.plan_action_id) await db.from("plan_actions").update({ draft: caption }).eq("id", post.plan_action_id);
+  return send({ status: "caption", caption });
+}
+
+/** Save an edited hook after the same checks as the brief (health, prices, offers, client names). */
+async function saveHook(db: SupabaseClient, userId: string, business: Business, postId: string, hook: string) {
+  const text = hook.replace(/\s+/g, " ").trim();
+  const problems = hookProblems(text, { servicePrices: business.services.map((s) => s.price), clientNames: await clientNamesOf(db, userId), ownerText: "" });
+  if (problems.length) return send({ status: "error", message: `Please change the hook: ${problems.join("; ")}.` }, 400);
+  const { error } = await db.from("content_posts").update({ hook: text }).eq("id", postId);
+  if (error) {
+    console.error("content: couldn't save the hook", error.code);
+    return send({ status: "error", message: "We couldn't save the hook. Please try again." }, 500);
+  }
+  return send({ status: "hook", hook: text });
 }

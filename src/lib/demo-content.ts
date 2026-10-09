@@ -313,20 +313,69 @@ export function sampleContentWeek(mode: Mode = "running"): ContentWeek {
     return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
   };
   const monday = key(-((d.getDay() + 6) % 7));
-  const base = { weekStart: monday, source: "ai" as const, postedAt: null, templateSize: "square" as const };
+  const base = { weekStart: monday, source: "ai" as const, postedAt: null };
   const ideas: ContentPost[] =
     mode === "launch"
       ? [
-          { ...base, id: "sample-c1", position: 1, type: "launch_countdown", title: "Count down to opening day", why: "28 days until you open your doors", day: key(0), status: "drafted", template: "countdown", templateText: { countdown: "28", headline: "until Shore Touch opens", line: "Asbury Park · Swedish and deep tissue" }, caption: "28 days to go! I've been getting the studio ready, and I can't wait to welcome you. Shore Touch Massage opens next month right here in Asbury Park. Follow along for a peek behind the scenes.\n\n#AsburyPark #AsburyParkNJ #JerseyShore #massage #newbusiness #comingsoon" },
-          { ...base, id: "sample-c2", position: 2, type: "behind_the_scenes", title: "Show the studio getting painted", why: "9 of 31 launch steps done so far", day: key(2), status: "idea", template: null, templateText: null, caption: null },
-          { ...base, id: "sample-c3", position: 3, type: "tip", title: "Share a 30-second desk stretch", why: "28 days to build trust before you open", day: key(3), status: "idea", template: null, templateText: null, caption: null },
+          {
+            ...base, id: "sample-c1", position: 1, type: "launch_countdown", title: "Count down to opening day", why: "28 days until you open your doors", day: key(0), status: "drafted",
+            format: "photo",
+            shots: ["Your studio mid-setup, boxes and all", "Close-up of a calendar with opening day circled"],
+            hook: "28 days until Shore Touch opens.",
+            caption: "I've been getting the studio ready, and I can't wait to welcome you. Shore Touch Massage opens next month right here in Asbury Park. Follow along for a peek behind the scenes.\n\n#AsburyPark #AsburyParkNJ #JerseyShore #massage #newbusiness #comingsoon",
+          },
+          {
+            ...base, id: "sample-c2", position: 2, type: "behind_the_scenes", title: "Show the studio getting painted", why: "9 of 31 launch steps done so far", day: key(2), status: "idea",
+            format: "carousel",
+            shots: ["The bare wall before you paint", "Your hands holding the paint roller", "The finished wall with your table in front"],
+            hook: "Before and after: day 3 of the new studio.",
+            caption: null,
+          },
+          {
+            ...base, id: "sample-c3", position: 3, type: "tip", title: "Share a 30-second desk stretch", why: "28 days to build trust before you open", day: key(3), status: "idea",
+            format: "reel",
+            shots: ["You sitting at a desk, phone propped on a stack of books", "You slowly dropping your ear to your shoulder", "You smiling at the camera when you're done"],
+            hook: "Stuck at a desk? Try this for 30 seconds.",
+            caption: null,
+          },
         ]
       : [
-          { ...base, id: "sample-c1", position: 1, type: "slow_day", title: "Post your Thursday and Friday openings", why: "4 days in the next week have nothing booked", day: key(0), status: "ready", template: "open_week", templateText: { headline: "Open spots this week", days: "Thu · Fri · Sun", line: "Book a 60-minute deep tissue, $110" }, caption: "I have a few spots open this week: Thursday, Friday and Sunday. If your shoulders have been up by your ears lately, this is your sign to take an hour for yourself. 60-minute deep tissue, $110. Tap the link in my bio to book.\n\n#AsburyPark #AsburyParkNJ #JerseyShore #massage #deeptissue #selfcare" },
-          { ...base, id: "sample-c2", position: 2, type: "tip", title: "Share a 30-second desk stretch", why: "4 quiet days ahead: a tip keeps you in mind", day: key(1), status: "drafted", template: "tip", templateText: { headline: "Drop your ear to your shoulder and breathe", line: "Five slow breaths each side. Your neck will thank you." }, caption: "Desk neck? Try this: drop your ear to your shoulder, take five slow breaths, then switch sides. Small resets add up. Want a longer reset? I'm here.\n\n#AsburyPark #AsburyParkNJ #deskstretch #massage #selfcare #JerseyShore" },
-          { ...base, id: "sample-c3", position: 3, type: "promo", title: "Remind people about your deep tissue massage", why: "Your deep tissue is $110 for 60 minutes", day: key(2), status: "idea", template: "price", templateText: { headline: "Deep tissue massage", price: "$110 · 60 min", line: "Take an hour for yourself." }, caption: null },
-          { ...base, id: "sample-c4", position: 4, type: "behind_the_scenes", title: "Show your table set up with fresh towels", why: "4 open days to fill this week", day: key(3), status: "idea", template: null, templateText: null, caption: null },
-          { ...base, id: "sample-c5", position: 5, type: "client_love", title: "Thank your regulars this week", why: "You kept $1,930 last month thanks to them", day: key(-2), status: "posted", template: "thanks", templateText: { headline: "to everyone who came in this month", line: "You make this the best job." }, caption: "Thank you to everyone who came in this month. You make this the best job. See you soon!\n\n#AsburyPark #AsburyParkNJ #smallbusiness #massage #thankyou", postedAt: new Date(d.getTime() - 2 * 86_400_000).toISOString() },
+          {
+            ...base, id: "sample-c1", position: 1, type: "slow_day", title: "Post your Thursday and Friday openings", why: "4 days in the next week have nothing booked", day: key(0), status: "ready",
+            format: "reel",
+            shots: ["Wide shot of your room, table made up and ready", "Slow pan across your booking calendar on your laptop", "You waving at the camera, phone propped on a shelf"],
+            hook: "I have spots open Thursday, Friday and Sunday.",
+            caption: "If your shoulders have been up by your ears lately, this is your sign to take an hour for yourself. 60-minute deep tissue, $110. Tap the link in my bio to book.\n\n#AsburyPark #AsburyParkNJ #JerseyShore #massage #deeptissue #selfcare",
+          },
+          {
+            ...base, id: "sample-c2", position: 2, type: "tip", title: "Share a 30-second desk stretch", why: "4 quiet days ahead: a tip keeps you in mind", day: key(1), status: "drafted",
+            format: "reel",
+            shots: ["You at a desk, phone propped at eye level on a stack of books", "You dropping your ear toward your shoulder, slowly", "Close-up of your face as you breathe out"],
+            hook: "Desk neck? Try this for 30 seconds.",
+            caption: "Drop your ear to your shoulder, take five slow breaths, then switch sides. Small resets add up. Want a longer reset? I'm here.\n\n#AsburyPark #AsburyParkNJ #deskstretch #massage #selfcare #JerseyShore",
+          },
+          {
+            ...base, id: "sample-c3", position: 3, type: "promo", title: "Remind people about your deep tissue massage", why: "Your deep tissue is $110 for 60 minutes", day: key(2), status: "idea",
+            format: "photo",
+            shots: ["Close-up of your oils lined up on the table", "Your hands warming the oil, soft light from the window"],
+            hook: "Deep tissue, $110 for 60 minutes. Here's what that hour feels like.",
+            caption: null,
+          },
+          {
+            ...base, id: "sample-c4", position: 4, type: "behind_the_scenes", title: "Show your table set up with fresh towels", why: "4 open days to fill this week", day: key(3), status: "idea",
+            format: "carousel",
+            shots: ["Your room before the first appointment", "Close-up of fresh towels folded on the table", "Your morning coffee and the day's schedule"],
+            hook: "Here's what happens before you walk in.",
+            caption: null,
+          },
+          {
+            ...base, id: "sample-c5", position: 5, type: "client_love", title: "Thank your regulars this week", why: "You kept $1,930 last month thanks to them", day: key(-2), status: "posted",
+            format: "photo",
+            shots: ["A handwritten thank-you note on your table", "Your room in warm evening light"],
+            hook: "Thank you for trusting me with your time.",
+            caption: "To everyone who came in this month: you make this the best job. See you soon!\n\n#AsburyPark #AsburyParkNJ #smallbusiness #massage #thankyou",
+            postedAt: new Date(d.getTime() - 2 * 86_400_000).toISOString(),
+          },
         ];
   return { weekStart: monday, ideas, newIdeasLeft: 2 };
 }

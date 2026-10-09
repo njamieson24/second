@@ -9,7 +9,6 @@ import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WhatSecondKnows } from "@/components/WhatSecondKnows";
-import { BrandSettings } from "@/components/BrandSettings";
 import { useLoadedData } from "@/lib/data";
 import { formatMoney } from "@/lib/money";
 import { useMode } from "@/lib/mode";
@@ -104,8 +103,6 @@ function Settings() {
       </Card>
 
       <WhatSecondKnows />
-
-      <BrandSettings />
 
       <div className="grid grid-cols-1 items-start gap-6 desk:grid-cols-2">
         <Card title="Your business" aside={<Chip tone="sky">{mode === "launch" ? "Launch mode" : "Running mode"}</Chip>}>
