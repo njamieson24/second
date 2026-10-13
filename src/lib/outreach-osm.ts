@@ -1,5 +1,6 @@
 // Outreach: finding local businesses on OpenStreetMap (free, no key). Server only.
-// Nominatim turns a town into an OpenStreetMap area; Overpass lists the businesses in it.
+// Nominatim turns a town into an OpenStreetMap area and lists the businesses in and near it
+// (fast, 1 to 2 seconds). Overpass is the backup: more complete, but often overloaded ("504").
 // Data © OpenStreetMap contributors (the page shows the required credit).
 
 import { CATEGORIES, type CategoryId } from "./outreach";
@@ -15,8 +16,8 @@ const DEFAULT_OVERPASS = [
   "https://overpass.private.coffee/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
 ];
-const PER_SERVER_MS = 15_000;
-const TOTAL_BUDGET_MS = 48_000;
+const PER_SERVER_MS = 8_000;
+const TOTAL_BUDGET_MS = 30_000;
 
 /** The Overpass servers to try, in order. OUTREACH_OVERPASS_SERVERS is TEST-ONLY (never set in Vercel). */
 export function overpassServers(): string[] {
@@ -51,7 +52,68 @@ export function overpassQuery(areaId: number, category: CategoryId): string {
   return `[out:json][timeout:25];\narea(id:${areaId})->.a;\n(\n  ${parts.join("\n  ")}\n);\nout center tags 400;`;
 }
 
-type OsmElement = { type: "node" | "way" | "relation"; id: number; tags?: Record<string, string> };
+export type OsmElement = { type: "node" | "way" | "relation"; id: number; tags?: Record<string, string> };
+
+/** The map tags Nominatim searches for each category (it indexes each place by its main tag). */
+const NOMINATIM_TAGS: Record<CategoryId, [string, string][]> = {
+  cafes: [["amenity", "cafe"]],
+  restaurants: [["amenity", "restaurant"], ["amenity", "fast_food"]],
+  bars: [["amenity", "bar"], ["amenity", "pub"]],
+  bakeries: [["shop", "bakery"], ["shop", "pastry"]],
+  ice_cream: [["amenity", "ice_cream"]],
+  salons: [["shop", "hairdresser"], ["shop", "beauty"]],
+  gyms: [["leisure", "fitness_centre"], ["leisure", "sports_centre"]],
+  spa: [["shop", "massage"], ["leisure", "spa"]],
+  florists: [["shop", "florist"]],
+  retail: [["shop", "clothes"], ["shop", "gift"]],
+};
+
+type NominatimPlace = {
+  osm_type?: string;
+  osm_id?: number;
+  category?: string;
+  type?: string;
+  name?: string;
+  extratags?: Record<string, string> | null;
+  address?: Record<string, string> | null;
+};
+
+/**
+ * Businesses of one kind in and near a town, from Nominatim (up to 40 per map tag).
+ * `claimSlot` waits for the app-wide 1-lookup-a-second turn before each request.
+ * Returns null only if every request failed (then the caller tries Overpass).
+ */
+export async function nominatimPlaces(town: string, state: string, category: CategoryId, claimSlot: () => Promise<void>): Promise<OsmElement[] | null> {
+  const where = [town, state].filter(Boolean).join(", ");
+  const out: OsmElement[] = [];
+  let answered = false;
+  for (const [k, v] of NOMINATIM_TAGS[category]) {
+    try {
+      await claimSlot();
+      const url = `${NOMINATIM}?${new URLSearchParams({ q: `[${k}=${v}] ${where}`, format: "jsonv2", extratags: "1", addressdetails: "1", limit: "40", countrycodes: "us" })}`;
+      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) {
+        console.error("outreach: nominatim", res.status);
+        continue;
+      }
+      answered = true;
+      for (const p of (await res.json()) as NominatimPlace[]) {
+        if (p.category !== k || p.type !== v || !p.name || !p.osm_id) continue;
+        if (p.osm_type !== "node" && p.osm_type !== "way" && p.osm_type !== "relation") continue;
+        const a = p.address ?? {};
+        const tags: Record<string, string> = { ...(p.extratags ?? {}), name: p.name };
+        if (a.house_number) tags["addr:housenumber"] = a.house_number;
+        if (a.road) tags["addr:street"] = a.road;
+        const city = a.city ?? a.town ?? a.village ?? a.hamlet;
+        if (city) tags["addr:city"] = city;
+        out.push({ type: p.osm_type, id: p.osm_id, tags });
+      }
+    } catch (error) {
+      console.error("outreach: nominatim", error instanceof Error ? error.name : "failed");
+    }
+  }
+  return answered ? out : null;
+}
 
 /** Ask each Overpass server in turn; fall back if one is busy, fails, or times out. */
 export async function runOverpass(query: string): Promise<{ elements: OsmElement[]; server: string } | null> {

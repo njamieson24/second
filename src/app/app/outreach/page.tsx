@@ -110,7 +110,7 @@ export default function OutreachPage() {
 
       {searching && (
         <p role="status" className="m-0 rounded-row bg-sky-tint px-4 py-3 text-[15px] text-sky-ink">
-          {searching} This can take up to half a minute.
+          {searching} This takes a few seconds.
         </p>
       )}
       {problem && (

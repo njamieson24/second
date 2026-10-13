@@ -15,7 +15,7 @@ import { formatMoney, knownClientNames } from "@/lib/money";
 import { CATEGORIES, categoryLabel, isEmailAddress, OUTREACH_LIMITS, type CategoryId, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "@/lib/outreach";
 import { DRAFT_MODEL, DRAFT_SYSTEM, DRAFT_TOOL, draftProblems, draftPrompt, OUTREACH_DRAFT_MAX_TOKENS, MAX_WORDS, wordCount, withOptOut } from "@/lib/outreach-draft";
 import { isGoodEmail, lookupEmail } from "@/lib/outreach-email";
-import { areaIdFor, geocodeTown, overpassQuery, pickPlaces, runOverpass } from "@/lib/outreach-osm";
+import { areaIdFor, geocodeTown, nominatimPlaces, overpassQuery, pickPlaces, runOverpass } from "@/lib/outreach-osm";
 import type { Business } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -176,9 +176,19 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
   const usage = await usageOf(db, userId);
   if (usage.searchesLeft <= 0) return fail(`You've done today's ${OUTREACH_LIMITS.searchesPerDay} map searches. You can search again tomorrow.`, 429);
 
-  const result = await runOverpass(overpassQuery(areaId, category));
-  if (!result) return fail("The map servers are busy right now. Try again in a minute.", 503);
-  const places = pickPlaces(result.elements, { hideChains, ownName: business.businessName, max: OUTREACH_LIMITS.maxResults });
+  // Nominatim first (fast); Overpass if Nominatim is down or found nothing.
+  const claimSlot = async () => {
+    const { error } = await db.rpc("claim_nominatim_slot");
+    if (error) throw new Error(`nominatim guard ${error.code}`);
+  };
+  const fromNominatim = await nominatimPlaces(town, state, category, claimSlot);
+  let elements = fromNominatim ?? [];
+  if (!elements.length) {
+    const result = await runOverpass(overpassQuery(areaId, category));
+    if (result) elements = result.elements;
+    else if (!fromNominatim) return fail("The map servers are busy right now. Try again in a minute.", 503);
+  }
+  const places = pickPlaces(elements, { hideChains, ownName: business.businessName, max: OUTREACH_LIMITS.maxResults });
 
   // Save as leads. Places already saved are left alone (keeps status, email and notes).
   if (places.length) {
