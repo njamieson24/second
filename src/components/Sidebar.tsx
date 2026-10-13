@@ -105,12 +105,6 @@ export function Sidebar({
             >
               <Icon size={20} strokeWidth={2} aria-hidden="true" className={active ? "text-panel-accent" : ""} />
               {item.label}
-              {showSamples && item.href === "/app/outreach" ? (
-                <span className="ml-auto rounded-chip bg-mint px-2 py-0.5 text-xs font-semibold text-mint-ink">
-                  3
-                  <span className="sr-only"> new</span>
-                </span>
-              ) : null}
             </Link>
           );
         })}

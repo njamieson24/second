@@ -13,6 +13,7 @@ import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./st
 import type { BusinessNote } from "./chat";
 import type { PlanAction, WeekPlan } from "./week";
 import type { ContentPost, ContentWeek } from "./content";
+import { OPT_OUT_LINE, type Lead } from "./outreach";
 import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
 
 // ---------- Maria's sample business (real-looking saved data) ----------
@@ -406,34 +407,41 @@ export const ideas = [
   { lead: "Raise Saturday prices by $10.", text: "Your Saturdays filled up every week this month." },
 ];
 
-export const outreach = {
-  subtitle: "Chair massage day pitch to local gyms and studios",
-  unreadReplies: 3,
-  stats: [
-    { label: "Emails sent", value: "12" },
-    { label: "Replies", value: "3" },
-    { label: "Events booked", value: "1", good: true },
-    { label: "Follow-ups going out", value: "Friday" },
-  ],
-  waiting: {
-    count: 9,
-    more: 6,
-    places: [
-      { name: "Boardwalk Barre", detail: "Studio, 1.4 mi, sent Mon" },
-      { name: "Iron Tide Gym", detail: "Gym, 2.0 mi, sent Mon" },
-      { name: "Shoreline Pilates", detail: "Studio, 2.3 mi, sent Mon" },
-    ],
-  },
-  replied: [
-    { name: "Seaside Yoga Studio", detail: "Asked about group pricing", chip: "Reply drafted", tone: "sky" },
-    { name: "Main Street CrossFit", detail: "Maybe in January", chip: "Reminder set for Jan 5", tone: "neutral" },
-  ] as { name: string; detail: string; chip: string; tone: ChipTone }[],
-  booked: [{ name: "Harbor Fitness", detail: "Chair massage day, Nov 14, 5 to 7 PM", chip: "On your calendar" }],
-  nextBatch: {
-    heading: "10 running clubs and offices near you",
-    text: "Offices love a wellness day before the holidays. Every email is written and personalized. Want to look them over?",
-  },
-};
+/**
+ * Outreach for the demo: MADE-UP businesses with example.com emails. Not real places or real
+ * contact info. The demo never searches the map, looks anything up, or calls the AI.
+ */
+export function sampleLeads(): Lead[] {
+  const base = { source: "osm" as const, town: "Sample Town, NJ", address: null, phone: null, instagram: null, facebook: null, contactPage: null, note: null, draftSubject: null, draftBody: null, emailCheckedAt: null };
+  const lead = (id: string, category: string, name: string, extra: Partial<Lead> = {}): Lead => ({
+    ...base,
+    id: `sample-lead-${id}`,
+    category,
+    name,
+    website: "https://www.example.com",
+    email: null,
+    emailSource: null,
+    status: "new",
+    ...extra,
+  });
+  const draft = sampleOutreachDraft("Pretend Pilates Studio");
+  return [
+    lead("1", "gyms", "Pretend Pilates Studio (sample)", { email: "hello@example.com", emailSource: "openstreetmap", status: "drafted", draftSubject: draft.subject, draftBody: draft.body }),
+    lead("2", "gyms", "Make-Believe Fitness (sample)", { email: "info@example.com", emailSource: "https://www.example.com/contact", status: "contacted", note: "Sent Monday. Follow up next week." }),
+    lead("3", "gyms", "Imaginary Yoga Loft (sample)", { email: "studio@example.com", emailSource: "https://www.example.com/about", status: "replied", note: "Wants to talk about a recovery day in May." }),
+    lead("4", "cafes", "Sample Street Café (sample)"),
+    lead("5", "cafes", "Example Bean Coffee (sample)", { email: "coffee@example.com", emailSource: "openstreetmap", status: "email_found" }),
+    lead("6", "salons", "Placeholder Hair Studio (sample)", { status: "not_interested", email: "salon@example.com", emailSource: "added by you", source: "manual" }),
+  ];
+}
+
+export function sampleOutreachDraft(name: string): { subject: string; body: string } {
+  const to = name.replace(/ \(sample\)$/, "");
+  return {
+    subject: `A recovery day idea for ${to}`,
+    body: `Hi there,\n\nI'm Maria, a massage therapist here in town. I think your members would love a recovery day: I'd set up a massage chair at ${to} for an afternoon and do short sessions after classes.\n\nWould you be open to a quick chat about it this week?\n\nThanks,\nMaria\nShore Touch Massage\n\n${OPT_OUT_LINE}`,
+  };
+}
 
 export const contentPosts = [
   {

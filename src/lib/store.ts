@@ -17,9 +17,10 @@ import type {
   ProposalStatus,
   SavedChatMessage,
 } from "./chat";
-import { SAMPLE_NOTES, sampleContentWeek, sampleWeek } from "./demo-content";
+import { SAMPLE_NOTES, sampleContentWeek, sampleLeads, sampleOutreachDraft, sampleWeek } from "./demo-content";
 import type { ContentPost, ContentResponse, ContentWeek, PostStatus } from "./content";
 import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
+import { OUTREACH_LIMITS, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "./outreach";
 import { buildDemoAccount } from "./demo-content";
 import { localBackend } from "./store-local";
 import { createSupabaseBackend } from "./store-supabase";
@@ -856,6 +857,145 @@ export async function saveContentTone(tone: ContentTone): Promise<void> {
   const business = await getBusiness();
   if (business) await saveBusiness({ ...business, contentTone: tone });
   await remote?.backend.settle(); // saved before the next caption is written
+}
+
+// ---------- Outreach ----------
+// Second never sends anything: the owner copies the draft and sends it from their own email.
+// The demo shows made-up businesses (example.com emails) and never calls the server.
+
+export type LeadResult = { ok: true; lead: Lead; found: boolean; message?: string; usage: OutreachUsage } | { ok: false; message: string };
+export type LeadsResult = { ok: true; leads: Lead[]; reused: boolean; town: string; usage: OutreachUsage } | { ok: false; message: string };
+export type OutreachDraftResult = { ok: true; subject: string; body: string; lead: Lead; usage: OutreachUsage } | { ok: false; message: string };
+
+const DEMO_USAGE: OutreachUsage = { searchesLeft: OUTREACH_LIMITS.searchesPerDay, lookupsLeft: OUTREACH_LIMITS.lookupsPerDay, draftsLeft: OUTREACH_LIMITS.draftsPerDay };
+let demoLeads: Lead[] | null = null;
+const demoList = () => (demoLeads ??= sampleLeads());
+const demoUpdate = (id: string, changes: Partial<Lead>) => {
+  demoLeads = demoList().map((l) => (l.id === id ? { ...l, ...changes } : l));
+  return demoLeads.find((l) => l.id === id);
+};
+
+async function outreachRequest(body: object): Promise<OutreachResponse> {
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { status: "error", message: "Please log in." };
+  try {
+    const res = await fetch("/api/outreach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as OutreachResponse;
+  } catch {
+    return { status: "error", message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
+}
+const errorOf = (res: OutreachResponse) => (res.status === "error" ? res.message : "Something went wrong. Please try again.");
+
+type LeadRow = Record<string, unknown> & { id: string };
+const rowToLead = (r: LeadRow): Lead => ({
+  id: r.id,
+  source: r.source as Lead["source"],
+  town: (r.town as string | null) ?? null,
+  category: r.category as string,
+  name: r.name as string,
+  address: (r.address as string | null) ?? null,
+  website: (r.website as string | null) ?? null,
+  phone: (r.phone as string | null) ?? null,
+  email: (r.email as string | null) ?? null,
+  emailSource: (r.email_source as string | null) ?? null,
+  contactPage: (r.contact_page as string | null) ?? null,
+  instagram: (r.instagram as string | null) ?? null,
+  facebook: (r.facebook as string | null) ?? null,
+  status: r.status as LeadStatus,
+  note: (r.note as string | null) ?? null,
+  draftSubject: (r.draft_subject as string | null) ?? null,
+  draftBody: (r.draft_body as string | null) ?? null,
+  emailCheckedAt: (r.email_checked_at as string | null) ?? null,
+});
+
+/** Every saved lead, newest changes first. */
+export async function getLeads(): Promise<{ leads: Lead[]; sample: boolean }> {
+  if (await isDemo()) return { leads: demoList(), sample: true };
+  const user = await currentUser();
+  if (!user) return { leads: [], sample: false };
+  const { data } = await supabase().from("outreach_leads").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(500);
+  return { leads: ((data ?? []) as LeadRow[]).map(rowToLead), sample: false };
+}
+
+/** Lookups, drafts and map searches left today. */
+export async function getOutreachUsage(): Promise<OutreachUsage> {
+  if (await isDemo()) return DEMO_USAGE;
+  const res = await outreachRequest({ action: "usage" });
+  return res.status === "usage" ? res.usage : DEMO_USAGE;
+}
+
+/** Find businesses of one kind in a town (OpenStreetMap). Saved results are reused for 30 days. */
+export async function searchLeads(input: { town: string; state: string; category: string; hideChains: boolean }): Promise<LeadsResult> {
+  if (await isDemo()) {
+    return { ok: true, leads: demoList().filter((l) => l.category === input.category), reused: false, town: [input.town, input.state].filter(Boolean).join(", "), usage: DEMO_USAGE };
+  }
+  const res = await outreachRequest({ action: "search", ...input });
+  return res.status === "leads" ? { ok: true, leads: res.leads, reused: res.reused, town: res.town, usage: res.usage } : { ok: false, message: errorOf(res) };
+}
+
+/** Look for the business's public email (map, then their website, then a web search). */
+export async function findLeadEmail(leadId: string): Promise<LeadResult> {
+  if (await isDemo()) {
+    const lead = demoList().find((l) => l.id === leadId);
+    if (!lead) return { ok: false, message: "This is a demo." };
+    const email = lead.email ?? `${lead.name.toLowerCase().replace(/[^a-z]+/g, "")}@example.com`;
+    const updated = demoUpdate(leadId, { email, emailSource: lead.emailSource ?? "https://www.example.com/contact", status: lead.status === "new" ? "email_found" : lead.status })!;
+    return { ok: true, lead: updated, found: true, usage: DEMO_USAGE };
+  }
+  const res = await outreachRequest({ action: "find_email", leadId });
+  return res.status === "lead" ? { ok: true, lead: res.lead, found: res.found, message: res.message, usage: res.usage } : { ok: false, message: errorOf(res) };
+}
+
+/** Second writes the email. The owner reads it, edits it, and sends it themselves. */
+export async function draftOutreachEmail(leadId: string, goal: string): Promise<OutreachDraftResult> {
+  if (await isDemo()) {
+    const lead = demoList().find((l) => l.id === leadId);
+    if (!lead) return { ok: false, message: "This is a demo." };
+    const d = sampleOutreachDraft(lead.name);
+    const updated = demoUpdate(leadId, { draftSubject: d.subject, draftBody: d.body, status: lead.status === "new" || lead.status === "email_found" ? "drafted" : lead.status })!;
+    return { ok: true, ...d, lead: updated, usage: DEMO_USAGE };
+  }
+  const res = await outreachRequest({ action: "draft", leadId, goal: goal.slice(0, OUTREACH_LIMITS.goalMaxChars) });
+  return res.status === "draft" ? { ok: true, subject: res.subject, body: res.body, lead: res.lead, usage: res.usage } : { ok: false, message: errorOf(res) };
+}
+
+/** Add a business by hand (one the map doesn't have). */
+export async function addManualLead(input: { name: string; website: string; email: string; category: string; town: string }): Promise<LeadResult> {
+  if (await isDemo()) {
+    const lead: Lead = {
+      id: newId(), source: "manual", town: input.town || null, category: input.category, name: input.name.trim(), address: null,
+      website: input.website.trim() || null, phone: null, email: input.email.trim() || null, emailSource: input.email.trim() ? "added by you" : null,
+      contactPage: null, instagram: null, facebook: null, status: input.email.trim() ? "email_found" : "new", note: null, draftSubject: null, draftBody: null, emailCheckedAt: null,
+    };
+    if (!lead.name) return { ok: false, message: "Please type the business name." };
+    demoLeads = [lead, ...demoList()];
+    return { ok: true, lead, found: Boolean(lead.email), usage: DEMO_USAGE };
+  }
+  const res = await outreachRequest({ action: "add_manual", ...input });
+  return res.status === "lead" ? { ok: true, lead: res.lead, found: res.found, usage: res.usage } : { ok: false, message: errorOf(res) };
+}
+
+export type LeadChanges = Partial<{ status: LeadStatus; note: string | null; draftSubject: string | null; draftBody: string | null }>;
+
+/** Save the owner's changes to a lead: status, note, or their edits to the draft. */
+export async function updateLead(id: string, changes: LeadChanges): Promise<boolean> {
+  if (await isDemo()) {
+    demoUpdate(id, changes);
+    return true;
+  }
+  const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (changes.status !== undefined) row.status = changes.status;
+  if (changes.note !== undefined) row.note = changes.note?.trim().slice(0, OUTREACH_LIMITS.noteMaxChars) || null;
+  if (changes.draftSubject !== undefined) row.draft_subject = changes.draftSubject?.slice(0, 200) ?? null;
+  if (changes.draftBody !== undefined) row.draft_body = changes.draftBody?.slice(0, 3000) ?? null;
+  const { error } = await supabase().from("outreach_leads").update(row).eq("id", id);
+  return !error;
 }
 
 // ---------- Beta sign-ups (public /beta page, no account) ----------

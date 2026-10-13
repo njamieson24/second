@@ -170,7 +170,8 @@ export const DATA_TABLES = ["events", "transactions", "roadmap_tasks", "money_pl
 
 /**
  * Also cleared by "Start over": what Second learned (notes), its suggestion cards, this
- * week's actions, and content ideas and posts. Not memory_runs, weekly_plans, draft_runs or
- * content_weeks (the AI cost logs and caps), and not chat_messages (chat history stays).
+ * week's actions, content ideas and posts, and outreach leads. Not memory_runs, weekly_plans,
+ * draft_runs, content_weeks or the outreach logs (the cost logs and caps), and not chat_messages
+ * (chat history stays).
  */
-export const MEMORY_TABLES = ["chat_proposals", "business_notes", "plan_actions", "content_posts"] as const;
+export const MEMORY_TABLES = ["chat_proposals", "business_notes", "plan_actions", "content_posts", "outreach_leads"] as const;

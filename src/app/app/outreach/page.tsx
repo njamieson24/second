@@ -1,135 +1,203 @@
 "use client";
 
-import { ComingSoon, SampleTag } from "@/components/EmptyStates";
-import { useLoadedData } from "@/lib/data";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/Button";
-import { Chip } from "@/components/Chip";
+import { SampleTag, EmptyState } from "@/components/EmptyStates";
 import { PageBody, PageHeader } from "@/components/PageHeader";
-import { StatTile } from "@/components/StatTile";
-import { outreach } from "@/lib/demo-content";
+import { AddLeadForm } from "@/components/outreach/AddLeadForm";
+import { LeadCard } from "@/components/outreach/LeadCard";
+import { OsmCredit, SearchPanel, type SearchInput } from "@/components/outreach/SearchPanel";
+import { useLoadedData } from "@/lib/data";
+import { categoryLabel, LEAD_STATUSES, type Lead, type LeadStatus, type OutreachUsage } from "@/lib/outreach";
+import { getLeads, getOutreachUsage, searchLeads } from "@/lib/store";
 
-function SampleOutreach() {
+// Outreach (Running mode): find local businesses to team up with, find their public email,
+// and have Second draft an email. The owner sends it from their own email. Second never does.
+
+/** "Asbury Park, NJ" -> town "Asbury Park", state "NJ". */
+function splitArea(area: string): { town: string; state: string } {
+  const parts = area.split(",").map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return { town: parts[0] ?? "", state: "" };
+  return { town: parts.slice(0, -1).join(", "), state: parts[parts.length - 1] };
+}
+
+const PAGE = 12;
+
+type Scope = { label: string; town: string; ids: Set<string> } | null;
+
+export default function OutreachPage() {
+  const { business } = useLoadedData();
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [sample, setSample] = useState(false);
+  const [usage, setUsage] = useState<OutreachUsage | null>(null);
+  const [scope, setScope] = useState<Scope>(null);
+  const [filter, setFilter] = useState<LeadStatus | "all">("all");
+  const [searching, setSearching] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [visible, setVisible] = useState(PAGE);
+
+  useEffect(() => {
+    let live = true;
+    getLeads().then((r) => {
+      if (!live) return;
+      setLeads(r.leads);
+      setSample(r.sample);
+    });
+    getOutreachUsage().then((u) => live && setUsage(u));
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const area = splitArea(business.area ?? "");
+  const initial: SearchInput = { ...area, category: business.type === "fitness" ? "cafes" : "gyms", hideChains: true };
+
+  async function search(input: SearchInput) {
+    const what = categoryLabel(input.category).toLowerCase();
+    setSearching(`Looking at the map for ${what} in ${input.town}…`);
+    setProblem(null);
+    setNote(null);
+    const r = await searchLeads(input);
+    setSearching(null);
+    if (!r.ok) return setProblem(r.message);
+    setUsage(r.usage);
+    setLeads((all) => {
+      const byId = new Map((all ?? []).map((l) => [l.id, l]));
+      for (const l of r.leads) byId.set(l.id, l);
+      return [...byId.values()];
+    });
+    setScope({ label: `${categoryLabel(input.category)} in ${r.town}`, town: r.town, ids: new Set(r.leads.map((l) => l.id)) });
+    setFilter("all");
+    setVisible(PAGE);
+    if (!r.leads.length) setNote("We didn't find any on the map. Try another kind of business, or turn off Hide chains.");
+    else if (r.reused) setNote("These are from your last search. Saved results are kept for 30 days.");
+  }
+
+  const change = (lead: Lead) => setLeads((all) => (all ?? []).map((l) => (l.id === lead.id ? lead : l)));
+  const added = (lead: Lead) => {
+    setLeads((all) => [lead, ...(all ?? [])]);
+    setScope((s) => (s ? { ...s, ids: new Set([lead.id, ...s.ids]) } : s));
+  };
+
+  const inScope = useMemo(() => (leads ?? []).filter((l) => !scope || scope.ids.has(l.id)), [leads, scope]);
+  const shown = inScope.filter((l) => filter === "all" || l.status === filter);
+  const counts = useMemo(() => {
+    const c = new Map<string, number>();
+    for (const l of inScope) c.set(l.status, (c.get(l.status) ?? 0) + 1);
+    return c;
+  }, [inScope]);
+
   return (
     <PageBody gap="md">
       <PageHeader
         size="sm"
         title="Outreach"
-        subtitle={outreach.subtitle}
-        eyebrow={<SampleTag />}
-        actions={
-          <Button variant="ghost" weight="medium">
-            Find new places
-          </Button>
-        }
+        subtitle="Find local businesses to team up with. Second writes the email. You send it from your own email."
+        eyebrow={sample ? <SampleTag /> : undefined}
       />
 
-      <div className="grid grid-cols-2 gap-4 desk:grid-cols-4">
-        {outreach.stats.map((s) => (
-          <StatTile key={s.label} label={s.label} value={s.value} valueGood={s.good} />
-        ))}
+      <SearchPanel initial={initial} busy={searching !== null} onSearch={search} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <OsmCredit />
+        {usage && (
+          <p className="m-0 text-sm text-muted">
+            Today: {usage.lookupsLeft} email lookups and {usage.draftsLeft} drafts left
+          </p>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-5 desk:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,1.1fr)]">
-        <Column title="Waiting on reply" count={outreach.waiting.count} tone="neutral">
-          {outreach.waiting.places.map((p) => (
-            <PlaceCard key={p.name} name={p.name} detail={p.detail} />
-          ))}
-          <button type="button" className="min-h-11 self-start rounded-lg px-1 text-left text-sm font-medium text-sky-ink hover:underline">
-            + {outreach.waiting.more} more
-          </button>
-        </Column>
-
-        <Column title="Replied" count={outreach.replied.length} tone="sky">
-          {outreach.replied.map((p) => (
-            <PlaceCard key={p.name} name={p.name} detail={p.detail} chip={p.chip} chipTone={p.tone} />
-          ))}
-        </Column>
-
-        <Column title="Booked" count={outreach.booked.length} tone="mint">
-          {outreach.booked.map((p) => (
-            <PlaceCard key={p.name} name={p.name} detail={p.detail} chip={p.chip} chipTone="mint" highlight />
-          ))}
-        </Column>
-
-        <section className="on-dark flex flex-col gap-3 rounded-tile bg-panel p-[22px] ring-1 ring-ink-line text-on-panel">
-          <span className="text-[13px] font-semibold text-panel-accent">Next batch ready</span>
-          <h2 className="m-0 text-[21px] leading-tight font-semibold">{outreach.nextBatch.heading}</h2>
-          <p className="m-0 text-[15px] leading-normal text-on-dark">{outreach.nextBatch.text}</p>
-          <div>
-            <Button href="/chat" variant="mint" pad="tight">
-              Review drafts
-            </Button>
-          </div>
-        </section>
-      </div>
-    </PageBody>
-  );
-}
-
-const columnTones = {
-  neutral: "bg-line-soft",
-  sky: "bg-sky-tint text-sky-deep",
-  mint: "bg-mint-tint text-mint-heading",
-};
-
-function Column({
-  title,
-  count,
-  tone,
-  children,
-}: {
-  title: string;
-  count: number;
-  tone: keyof typeof columnTones;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className={`flex flex-col gap-2.5 rounded-tile p-4 ${columnTones[tone]}`}>
-      <h2 className="m-0 flex justify-between px-1 text-[15px] font-semibold">
-        <span>{title}</span>
-        <span className={tone === "neutral" ? "text-muted" : ""}>
-          {count}
-          <span className="sr-only"> places</span>
-        </span>
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-function PlaceCard({
-  name,
-  detail,
-  chip,
-  chipTone = "sky",
-  highlight,
-}: {
-  name: string;
-  detail: string;
-  chip?: string;
-  chipTone?: "mint" | "sky" | "neutral";
-  highlight?: boolean;
-}) {
-  return (
-    <div className={`rounded-[14px] bg-card px-3.5 py-3 text-ink ${highlight ? "border-[1.5px] border-mint" : ""}`}>
-      <div className="text-[15px] font-medium">{name}</div>
-      <div className="text-[13px] text-muted">{detail}</div>
-      {chip && (
-        <Chip tone={chipTone} size="sm" className="mt-2">
-          {chip}
-        </Chip>
+      {searching && (
+        <p role="status" className="m-0 rounded-row bg-sky-tint px-4 py-3 text-[15px] text-sky-ink">
+          {searching} This can take up to half a minute.
+        </p>
       )}
-    </div>
-  );
-}
+      {problem && (
+        <p role="alert" className="m-0 rounded-row border border-line bg-card px-4 py-3 text-[15px] text-ink">
+          {problem}
+        </p>
+      )}
+      {note && !searching && (
+        <p role="status" className="m-0 text-[15px] text-muted">
+          {note}
+        </p>
+      )}
 
-export default function OutreachPage() {
-  const { showSamples } = useLoadedData();
-  if (showSamples) return <SampleOutreach />;
-  return (
-    <PageBody>
-      <PageHeader size="sm" title="Outreach" subtitle="Finding new clients for you" />
-      <ComingSoon title="Second will find new clients for you" text="Second will look for gyms, studios, and offices near you, write each one a friendly email, and track who replies. Nothing is sent until you say yes." className="max-w-[720px]" />
+      <section aria-labelledby="leads-heading" className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="leads-heading" className="m-0 text-[21px] font-semibold">
+            {scope ? scope.label : "Your businesses"}
+          </h2>
+          {scope && (
+            <button type="button" onClick={() => {
+                setScope(null);
+                setVisible(PAGE);
+              }} className="min-h-11 text-[15px] text-sky-ink underline">
+              Show all my businesses
+            </button>
+          )}
+        </div>
+
+        {inScope.length > 0 && (
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Show by status">
+            {[{ id: "all" as const, label: "All" }, ...LEAD_STATUSES].map((s) => {
+              const n = s.id === "all" ? inScope.length : (counts.get(s.id) ?? 0);
+              if (s.id !== "all" && n === 0) return null;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  aria-pressed={filter === s.id}
+                  onClick={() => {
+                    setFilter(s.id);
+                    setVisible(PAGE);
+                  }}
+                  className={`min-h-11 rounded-full px-4 text-sm font-medium transition-colors ${
+                    filter === s.id ? "bg-ink text-paper" : "border border-line-strong bg-card text-ink hover:border-ink"
+                  }`}
+                >
+                  {s.label} ({n})
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <AddLeadForm town={scope?.town ?? business.area ?? ""} onAdded={added} />
+
+        {leads === null ? (
+          <p role="status" className="m-0 text-[15px] text-muted">
+            Loading your businesses…
+          </p>
+        ) : shown.length === 0 && !searching ? (
+          <EmptyState
+            text={
+              inScope.length
+                ? "Nothing with that status yet."
+                : "No businesses yet. Pick a kind of business above and tap Find. Second will list the ones near you."
+            }
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-1 items-start gap-4 desk:grid-cols-2">
+              {shown.slice(0, visible).map((l) => (
+                <LeadCard key={l.id} lead={l} onChange={change} onUsage={(u) => setUsage((old) => (old ? { ...old, ...u } : old))} />
+              ))}
+            </div>
+            {shown.length > visible && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="soft" size="sm" weight="medium" onClick={() => setVisible((v) => v + PAGE)}>
+                  Show {Math.min(PAGE, shown.length - visible)} more
+                </Button>
+                <span className="text-sm text-muted">
+                  Showing {visible} of {shown.length}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+      </section>
     </PageBody>
   );
 }
