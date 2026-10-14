@@ -12,7 +12,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { toBusiness, toEvent, toTransaction, type BusinessRow, type EventRow, type TransactionRow } from "@/lib/db-rows";
 import { formatMoney, knownClientNames } from "@/lib/money";
-import { CATEGORIES, categoryLabel, DEFAULT_RADIUS, isEmailAddress, milesBetween, OUTREACH_LIMITS, RADIUS_OPTIONS, type RadiusMi, type CategoryId, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "@/lib/outreach";
+import { CATEGORIES, CATEGORY_CHANGED, categoryLabel, DEFAULT_RADIUS, isEmailAddress, milesBetween, OUTREACH_LIMITS, RADIUS_OPTIONS, type RadiusMi, type CategoryId, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "@/lib/outreach";
 import { DRAFT_MODEL, DRAFT_SYSTEM, DRAFT_TOOL, draftProblems, draftPrompt, OUTREACH_DRAFT_MAX_TOKENS, MAX_WORDS, wordCount, withOptOut } from "@/lib/outreach-draft";
 import { isGoodEmail, lookupEmail } from "@/lib/outreach-email";
 import { areaIdFor, geocodeTown, nominatimPlaces, overpassQuery, pickPlaces, runOverpass, type Point } from "@/lib/outreach-osm";
@@ -188,7 +188,7 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
     .eq("category", category)
     .eq("hide_chains", hideChains)
     .eq("radius_mi", radiusMi)
-    .gte("created_at", since)
+    .gte("created_at", [since, CATEGORY_CHANGED[category] ?? since].sort().pop()!)
     .order("created_at", { ascending: false })
     .limit(1);
   if (recent.error) {
@@ -209,10 +209,15 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
     if (error) throw new Error(`nominatim guard ${error.code}`);
   };
   const fromNominatim = await nominatimPlaces(center, radiusMi, category, claimSlot, OUTREACH_LIMITS.maxResults);
-  let elements = fromNominatim ?? [];
+  let elements = fromNominatim?.elements ?? [];
+  // True only if the whole circle was searched (then untouched places it didn't list can go).
+  let complete = Boolean(fromNominatim?.complete);
   if (!elements.length) {
     const result = await runOverpass(overpassQuery(center, radiusMi, category));
-    if (result) elements = result.elements;
+    if (result) {
+      elements = result.elements;
+      complete = true;
+    }
     else if (!fromNominatim) return fail("The map servers are busy right now. Try again in a minute.", 503);
   }
   // Closest first, so the cap keeps the nearest places.
@@ -258,6 +263,28 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
       { onConflict: "user_id,osm_type,osm_id" },
     );
     if (refreshed.error) console.error("outreach: couldn't refresh leads", refreshed.error.code);
+  }
+  // Places saved earlier that the map no longer lists here (closed, or not this kind after all)
+  // are removed, but only if the owner never touched them: still New, no email, note or draft.
+  // (Skipped when the search stopped early or the list was cut at 150: not everything was checked.)
+  if (complete && places.length < OUTREACH_LIMITS.maxResults) {
+    const keep = new Set(places.map((p) => `${p.osmType}/${p.osmId}`));
+    const inRange = new Set((await leadsFor()).map((l) => l.id));
+    const { data: untouched } = await db
+      .from("outreach_leads")
+      .select("id, osm_type, osm_id")
+      .eq("user_id", userId)
+      .eq("category", category)
+      .eq("source", "osm")
+      .eq("status", "new")
+      .is("email", null)
+      .is("note", null)
+      .is("draft_body", null);
+    const stale = (untouched ?? []).filter((r) => inRange.has(r.id) && !keep.has(`${r.osm_type}/${r.osm_id}`)).map((r) => r.id as string);
+    if (stale.length) {
+      const removed = await db.from("outreach_leads").delete().in("id", stale).eq("status", "new").is("email", null).is("note", null).is("draft_body", null);
+      if (removed.error) console.error("outreach: couldn't remove old leads", removed.error.code);
+    }
   }
   await db.from("outreach_searches").insert({ user_id: userId, area_id: areaId, category, hide_chains: hideChains, radius_mi: radiusMi, result_count: places.length });
   return send({ status: "leads", leads: await leadsFor(), reused: false, town: label, usage: await usageOf(db, userId) });

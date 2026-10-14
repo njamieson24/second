@@ -75,8 +75,8 @@ const NOMINATIM_TAGS: Record<CategoryId, [string, string][]> = {
   bakeries: [["shop", "bakery"], ["shop", "pastry"]],
   ice_cream: [["amenity", "ice_cream"]],
   salons: [["shop", "hairdresser"], ["shop", "beauty"]],
-  gyms: [["leisure", "fitness_centre"], ["leisure", "sports_centre"]],
-  spa: [["shop", "massage"], ["leisure", "spa"]],
+  gyms: [["leisure", "fitness_centre"], ["amenity", "dojo"]],
+  spa: [["shop", "massage"]],
   florists: [["shop", "florist"]],
   retail: [["shop", "clothes"], ["shop", "gift"]],
 };
@@ -103,7 +103,8 @@ const PAGE = 40;
  * Nominatim doesn't sort by distance, so this searches growing boxes (2 miles, 5, 10, ...) and
  * stops once it has `max` places in range: the closest ones come first. Each box is paged with
  * exclude_place_ids. `claimSlot` waits for the app-wide 1-lookup-a-second turn before each request.
- * Returns null only if every request failed (then the caller tries Overpass).
+ * Returns null only if every request failed (then the caller tries Overpass). `complete` is false
+ * if it stopped early (enough places, request budget used, or a failed request).
  */
 export async function nominatimPlaces(
   center: Point,
@@ -111,7 +112,8 @@ export async function nominatimPlaces(
   category: CategoryId,
   claimSlot: () => Promise<void>,
   max: number,
-): Promise<OsmElement[] | null> {
+): Promise<{ elements: OsmElement[]; complete: boolean } | null> {
+  let complete = true;
   const rings = [...[2, 5, 10, 15].filter((r) => r < radiusMi), radiusMi];
   const seen = new Map<string, number[]>(); // per map tag: place ids already returned
   const out = new Map<string, OsmElement>();
@@ -127,7 +129,11 @@ export async function nominatimPlaces(
       const ids = seen.get(`${k}=${v}`) ?? [];
       seen.set(`${k}=${v}`, ids);
       // Page through this box until it runs out, there are enough, or the request budget is used.
-      while (requests < NOMINATIM_MAX_REQUESTS && inRange() < max) {
+      while (true) {
+        if (requests >= NOMINATIM_MAX_REQUESTS || inRange() >= max) {
+          complete = false;
+          break;
+        }
         requests++;
         let page: NominatimPlace[];
         try {
@@ -137,12 +143,14 @@ export async function nominatimPlaces(
           const res = await fetch(`${NOMINATIM}?${params}`, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
           if (!res.ok) {
             console.error("outreach: nominatim", res.status);
+            complete = false;
             break;
           }
           page = (await res.json()) as NominatimPlace[];
           answered = true;
         } catch (error) {
           console.error("outreach: nominatim", error instanceof Error ? error.name : "failed");
+          complete = false;
           break;
         }
         for (const p of page) {
@@ -163,7 +171,7 @@ export async function nominatimPlaces(
       }
     }
   }
-  return answered ? [...out.values()] : null;
+  return answered ? { elements: [...out.values()], complete } : null;
 }
 
 /** Ask each Overpass server in turn; fall back if one is busy, fails, or times out. */
@@ -270,6 +278,9 @@ export function pickPlaces(elements: OsmElement[], opts: { hideChains: boolean; 
     const key = `${p.osmType}/${p.osmId}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    // The same business mapped twice (a pin and a building outline): same name, close together.
+    const twin = out.some((o) => norm(o.name) === n && (o.lat == null || p.lat == null || milesBetween({ lat: o.lat, lon: o.lon! }, { lat: p.lat, lon: p.lon! }) < 0.2));
+    if (twin) continue;
     out.push(p);
     if (out.length >= opts.max) break;
   }

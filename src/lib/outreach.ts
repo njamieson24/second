@@ -39,12 +39,20 @@ export const CATEGORIES: { id: CategoryId; label: string; tags: [string, string]
   { id: "bakeries", label: "Bakeries", tags: [["shop", "bakery"], ["shop", "pastry"]] },
   { id: "ice_cream", label: "Ice cream", tags: [["amenity", "ice_cream"]] },
   { id: "salons", label: "Salons & barbers", tags: [["shop", "hairdresser"], ["shop", "beauty"]] },
-  { id: "gyms", label: "Gyms & yoga", tags: [["leisure", "fitness_centre"], ["sport", "yoga"]] },
-  { id: "spa", label: "Massage & spa", tags: [["shop", "massage"], ["leisure", "spa"]] },
+  // Fitness centres include yoga, pilates and barre studios on the map. Not leisure=sports_centre
+  // (mostly pools, racetracks, rinks and ball fields) or leisure=spa (mostly pools and hot tubs).
+  { id: "gyms", label: "Gyms & yoga", tags: [["leisure", "fitness_centre"], ["amenity", "dojo"]] },
+  { id: "spa", label: "Massage & spa", tags: [["shop", "massage"]] },
   { id: "florists", label: "Florists", tags: [["shop", "florist"]] },
   // "Any other shop": every shop=* except the shop types the chips above already cover.
   { id: "retail", label: "Retail", tags: [["shop", "*"]] },
 ];
+/** Searches made before a category's map tags last changed aren't reused (their results were wrong). */
+export const CATEGORY_CHANGED: Partial<Record<CategoryId, string>> = {
+  gyms: "2026-10-14T12:00:00Z",
+  spa: "2026-10-14T12:00:00Z",
+};
+
 export const categoryLabel = (id: string) => CATEGORIES.find((c) => c.id === id)?.label ?? "Business";
 
 export type LeadStatus = "new" | "email_found" | "drafted" | "contacted" | "replied" | "not_interested";
