@@ -8,7 +8,7 @@ import { AddLeadForm } from "@/components/outreach/AddLeadForm";
 import { LeadCard } from "@/components/outreach/LeadCard";
 import { OsmCredit, SearchPanel, type SearchInput } from "@/components/outreach/SearchPanel";
 import { useLoadedData } from "@/lib/data";
-import { categoryLabel, LEAD_STATUSES, type Lead, type LeadStatus, type OutreachUsage } from "@/lib/outreach";
+import { categoryLabel, DEFAULT_RADIUS, LEAD_STATUSES, type Lead, type LeadStatus, type OutreachUsage } from "@/lib/outreach";
 import { getLeads, getOutreachUsage, searchLeads } from "@/lib/store";
 
 // Outreach (Running mode): find local businesses to team up with, find their public email,
@@ -51,11 +51,11 @@ export default function OutreachPage() {
   }, []);
 
   const area = splitArea(business.area ?? "");
-  const initial: SearchInput = { ...area, category: business.type === "fitness" ? "cafes" : "gyms", hideChains: true };
+  const initial: SearchInput = { ...area, category: business.type === "fitness" ? "cafes" : "gyms", hideChains: true, radiusMi: DEFAULT_RADIUS };
 
   async function search(input: SearchInput) {
     const what = categoryLabel(input.category).toLowerCase();
-    setSearching(`Looking at the map for ${what} in ${input.town}…`);
+    setSearching(`Looking at the map for ${what} within ${input.radiusMi} miles of ${input.town}…`);
     setProblem(null);
     setNote(null);
     const r = await searchLeads(input);
@@ -67,14 +67,15 @@ export default function OutreachPage() {
       for (const l of r.leads) byId.set(l.id, l);
       return [...byId.values()];
     });
-    setScope({ label: `${categoryLabel(input.category)} in ${r.town}`, town: r.town, ids: new Set(r.leads.map((l) => l.id)) });
+    setScope({ label: `${categoryLabel(input.category)} within ${input.radiusMi} miles of ${r.town}`, town: r.town, ids: new Set(r.leads.map((l) => l.id)) });
     setFilter("all");
     setVisible(PAGE);
-    if (!r.leads.length) setNote("We didn't find any on the map. Try another kind of business, or turn off Hide chains.");
+    if (!r.leads.length) setNote("We didn't find any on the map. Try a bigger distance, another kind of business, or turn off Hide chains.");
     else if (r.reused) setNote("These are from your last search. Saved results are kept for 30 days.");
+    else if (r.leads.length >= 150) setNote("Showing the 150 closest.");
   }
 
-  const change = (lead: Lead) => setLeads((all) => (all ?? []).map((l) => (l.id === lead.id ? lead : l)));
+  const change = (lead: Lead) => setLeads((all) => (all ?? []).map((l) => (l.id === lead.id ? { ...lead, distanceMi: lead.distanceMi ?? l.distanceMi } : l)));
   const added = (lead: Lead) => {
     setLeads((all) => [lead, ...(all ?? [])]);
     setScope((s) => (s ? { ...s, ids: new Set([lead.id, ...s.ids]) } : s));
@@ -110,7 +111,7 @@ export default function OutreachPage() {
 
       {searching && (
         <p role="status" className="m-0 rounded-row bg-sky-tint px-4 py-3 text-[15px] text-sky-ink">
-          {searching} This takes a few seconds.
+          {searching} Bigger distances can take up to 20 seconds.
         </p>
       )}
       {problem && (
@@ -182,7 +183,7 @@ export default function OutreachPage() {
           <>
             <div className="grid grid-cols-1 items-start gap-4 desk:grid-cols-2">
               {shown.slice(0, visible).map((l) => (
-                <LeadCard key={l.id} lead={l} onChange={change} onUsage={(u) => setUsage((old) => (old ? { ...old, ...u } : old))} />
+                <LeadCard key={l.id} lead={l} showDistance={scope !== null} onChange={change} onUsage={(u) => setUsage((old) => (old ? { ...old, ...u } : old))} />
               ))}
             </div>
             {shown.length > visible && (

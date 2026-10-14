@@ -931,7 +931,7 @@ export async function getOutreachUsage(): Promise<OutreachUsage> {
 }
 
 /** Find businesses of one kind in a town (OpenStreetMap). Saved results are reused for 30 days. */
-export async function searchLeads(input: { town: string; state: string; category: string; hideChains: boolean }): Promise<LeadsResult> {
+export async function searchLeads(input: { town: string; state: string; category: string; hideChains: boolean; radiusMi: number }): Promise<LeadsResult> {
   if (await isDemo()) {
     return { ok: true, leads: demoList().filter((l) => l.category === input.category), reused: false, town: [input.town, input.state].filter(Boolean).join(", "), usage: DEMO_USAGE };
   }

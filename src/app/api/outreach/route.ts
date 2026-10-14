@@ -12,10 +12,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { toBusiness, toEvent, toTransaction, type BusinessRow, type EventRow, type TransactionRow } from "@/lib/db-rows";
 import { formatMoney, knownClientNames } from "@/lib/money";
-import { CATEGORIES, categoryLabel, isEmailAddress, OUTREACH_LIMITS, type CategoryId, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "@/lib/outreach";
+import { CATEGORIES, categoryLabel, DEFAULT_RADIUS, isEmailAddress, milesBetween, OUTREACH_LIMITS, RADIUS_OPTIONS, type RadiusMi, type CategoryId, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "@/lib/outreach";
 import { DRAFT_MODEL, DRAFT_SYSTEM, DRAFT_TOOL, draftProblems, draftPrompt, OUTREACH_DRAFT_MAX_TOKENS, MAX_WORDS, wordCount, withOptOut } from "@/lib/outreach-draft";
 import { isGoodEmail, lookupEmail } from "@/lib/outreach-email";
-import { areaIdFor, geocodeTown, nominatimPlaces, overpassQuery, pickPlaces, runOverpass } from "@/lib/outreach-osm";
+import { areaIdFor, geocodeTown, nominatimPlaces, overpassQuery, pickPlaces, runOverpass, type Point } from "@/lib/outreach-osm";
 import type { Business } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -126,16 +126,20 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
   const state = text(body.state, 40);
   const category = CATEGORIES.find((c) => c.id === body.category)?.id as CategoryId | undefined;
   const hideChains = body.hideChains !== false;
+  const radiusMi: RadiusMi = RADIUS_OPTIONS.find((r) => r === Number(body.radiusMi)) ?? DEFAULT_RADIUS;
   if (!town) return fail("Please type a town.", 400);
   if (!category) return fail("Please pick a kind of business.", 400);
 
   // Town: from this person's saved lookups, or Nominatim (1 a second for the whole app).
   const queryKey = `${town}, ${state}`.toLowerCase().replace(/\s+/g, " ").trim();
   const label = state ? `${town}, ${state}` : town;
-  let relationId: number | null = null;
-  const cached = await db.from("outreach_towns").select("relation_id").eq("user_id", userId).eq("query_key", queryKey).maybeSingle();
-  if (cached.data) relationId = Number(cached.data.relation_id);
-  else {
+  let relationId: number;
+  let center: Point;
+  const cached = await db.from("outreach_towns").select("relation_id, lat, lon").eq("user_id", userId).eq("query_key", queryKey).maybeSingle();
+  if (cached.data && cached.data.lat != null && cached.data.lon != null) {
+    relationId = Number(cached.data.relation_id);
+    center = { lat: Number(cached.data.lat), lon: Number(cached.data.lon) };
+  } else {
     const slot = await db.rpc("claim_nominatim_slot");
     if (slot.error) {
       console.error("outreach: nominatim guard", slot.error.code);
@@ -144,19 +148,37 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
     const found = await geocodeTown(town, state).catch(() => null);
     if (!found) return fail("We couldn't find that town. Check the spelling and the state.", 404);
     relationId = found.relationId;
-    await db.from("outreach_towns").insert({ user_id: userId, query_key: queryKey, relation_id: relationId, display_name: found.displayName.slice(0, 300) });
+    center = { lat: found.lat, lon: found.lon };
+    if (!cached.data) {
+      await db.from("outreach_towns").insert({ user_id: userId, query_key: queryKey, relation_id: relationId, display_name: found.displayName.slice(0, 300), lat: found.lat, lon: found.lon });
+    }
   }
   const areaId = areaIdFor(relationId);
   const since = new Date(Date.now() - OUTREACH_LIMITS.reuseDays * DAY).toISOString();
 
+  // Saved leads of this kind within the distance, closest first.
   const leadsFor = async () => {
-    let q = db.from("outreach_leads").select("*").eq("user_id", userId).eq("area_id", areaId).eq("category", category);
+    const dLat = radiusMi / 69;
+    const dLon = radiusMi / (69 * Math.cos((center.lat * Math.PI) / 180));
+    let q = db
+      .from("outreach_leads")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("category", category)
+      .gte("lat", center.lat - dLat)
+      .lte("lat", center.lat + dLat)
+      .gte("lon", center.lon - dLon)
+      .lte("lon", center.lon + dLon);
     if (hideChains) q = q.eq("chain", false);
-    const { data } = await q.order("name").limit(OUTREACH_LIMITS.maxResults);
-    return ((data ?? []) as LeadRow[]).map(toLead);
+    const { data } = await q.limit(1000);
+    return ((data ?? []) as (LeadRow & { lat: number; lon: number })[])
+      .map((r) => ({ ...toLead(r), distanceMi: Math.round(milesBetween(center, r) * 10) / 10 }))
+      .filter((l) => l.distanceMi <= radiusMi)
+      .sort((a, b) => a.distanceMi - b.distanceMi || a.name.localeCompare(b.name))
+      .slice(0, OUTREACH_LIMITS.maxResults);
   };
 
-  // Searched this town + kind in the last 30 days? Reuse the saved results (no map call).
+  // Same town, kind and distance in the last 30 days? Reuse the saved results (no map call).
   // (Unless the leads were cleared since, e.g. by Start over: then search again.)
   const recent = await db
     .from("outreach_searches")
@@ -165,9 +187,14 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
     .eq("area_id", areaId)
     .eq("category", category)
     .eq("hide_chains", hideChains)
+    .eq("radius_mi", radiusMi)
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(1);
+  if (recent.error) {
+    console.error("outreach: search cache", recent.error.code);
+    return fail("Outreach needs a quick database update. Please try again later.", 500);
+  }
   if (recent.data?.length) {
     const saved = await leadsFor();
     if (saved.length || recent.data[0].result_count === 0) return send({ status: "leads", leads: saved, reused: true, town: label, usage: await usageOf(db, userId) });
@@ -181,24 +208,35 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
     const { error } = await db.rpc("claim_nominatim_slot");
     if (error) throw new Error(`nominatim guard ${error.code}`);
   };
-  const fromNominatim = await nominatimPlaces(town, state, category, claimSlot);
+  const fromNominatim = await nominatimPlaces(center, radiusMi, category, claimSlot, OUTREACH_LIMITS.maxResults);
   let elements = fromNominatim ?? [];
   if (!elements.length) {
-    const result = await runOverpass(overpassQuery(areaId, category));
+    const result = await runOverpass(overpassQuery(center, radiusMi, category));
     if (result) elements = result.elements;
     else if (!fromNominatim) return fail("The map servers are busy right now. Try again in a minute.", 503);
   }
-  const places = pickPlaces(elements, { hideChains, ownName: business.businessName, max: OUTREACH_LIMITS.maxResults });
+  // Closest first, so the cap keeps the nearest places.
+  const where = (e: (typeof elements)[number]) => (e.lat != null && e.lon != null ? { lat: e.lat, lon: e.lon } : e.center ?? null);
+  const nearby = elements
+    .map((e) => ({ e, at: where(e) }))
+    .filter((x): x is { e: (typeof elements)[number]; at: Point } => x.at !== null)
+    .map((x) => ({ e: x.e, d: milesBetween(center, x.at) }))
+    .filter((x) => x.d <= radiusMi)
+    .sort((a, b) => a.d - b.d)
+    .map((x) => x.e);
+  const places = pickPlaces(nearby, { hideChains, ownName: business.businessName, max: OUTREACH_LIMITS.maxResults });
 
-  // Save as leads. Places already saved are left alone (keeps status, email and notes).
   if (places.length) {
+    // New places are saved in full. Places already saved keep their status, email, website,
+    // notes and drafts; only their map details (name, kind, location) are refreshed.
+    const goodEmail = (p: (typeof places)[number]) => (p.email && isGoodEmail(p.email) ? p.email.toLowerCase() : null);
     const rows = places.map((p) => ({
       user_id: userId,
       source: "osm",
       osm_type: p.osmType,
       osm_id: p.osmId,
       area_id: areaId,
-      town: label,
+      town: p.city ?? label,
       category,
       name: p.name,
       address: p.address,
@@ -207,14 +245,21 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
       instagram: p.instagram,
       facebook: p.facebook,
       chain: p.chain,
-      email: p.email && isGoodEmail(p.email) ? p.email.toLowerCase() : null,
-      email_source: p.email && isGoodEmail(p.email) ? "openstreetmap" : null,
-      status: p.email && isGoodEmail(p.email) ? "email_found" : "new",
+      lat: p.lat,
+      lon: p.lon,
+      email: goodEmail(p),
+      email_source: goodEmail(p) ? "openstreetmap" : null,
+      status: goodEmail(p) ? "email_found" : "new",
     }));
-    const saved = await db.from("outreach_leads").upsert(rows, { onConflict: "user_id,osm_type,osm_id", ignoreDuplicates: true });
-    if (saved.error) console.error("outreach: couldn't save leads", saved.error.code);
+    const added = await db.from("outreach_leads").upsert(rows, { onConflict: "user_id,osm_type,osm_id", ignoreDuplicates: true });
+    if (added.error) console.error("outreach: couldn't save leads", added.error.code);
+    const refreshed = await db.from("outreach_leads").upsert(
+      rows.map((r) => ({ user_id: r.user_id, source: r.source, osm_type: r.osm_type, osm_id: r.osm_id, category: r.category, name: r.name, chain: r.chain, lat: r.lat, lon: r.lon })),
+      { onConflict: "user_id,osm_type,osm_id" },
+    );
+    if (refreshed.error) console.error("outreach: couldn't refresh leads", refreshed.error.code);
   }
-  await db.from("outreach_searches").insert({ user_id: userId, area_id: areaId, category, hide_chains: hideChains, result_count: places.length });
+  await db.from("outreach_searches").insert({ user_id: userId, area_id: areaId, category, hide_chains: hideChains, radius_mi: radiusMi, result_count: places.length });
   return send({ status: "leads", leads: await leadsFor(), reused: false, town: label, usage: await usageOf(db, userId) });
 }
 

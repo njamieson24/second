@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Search } from "lucide-react";
 import { Card } from "@/components/Card";
 import { Field, inputClass } from "@/components/Field";
-import { CATEGORIES, type CategoryId } from "@/lib/outreach";
+import { CATEGORIES, RADIUS_OPTIONS, type CategoryId, type RadiusMi } from "@/lib/outreach";
 
-export type SearchInput = { town: string; state: string; category: CategoryId; hideChains: boolean };
+export type SearchInput = { town: string; state: string; category: CategoryId; hideChains: boolean; radiusMi: RadiusMi };
 
 /** Town, state, kind of business, "Hide chains", and Find. */
 export function SearchPanel({
@@ -22,6 +22,7 @@ export function SearchPanel({
   const [state, setState] = useState(initial.state);
   const [category, setCategory] = useState<CategoryId>(initial.category);
   const [hideChains, setHideChains] = useState(initial.hideChains);
+  const [radiusMi, setRadiusMi] = useState<RadiusMi>(initial.radiusMi);
 
   return (
     <Card title="Find businesses near you">
@@ -29,7 +30,7 @@ export function SearchPanel({
         className="mt-4 flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!busy && town.trim()) onSearch({ town: town.trim(), state: state.trim(), category, hideChains });
+          if (!busy && town.trim()) onSearch({ town: town.trim(), state: state.trim(), category, hideChains, radiusMi });
         }}
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
@@ -51,6 +52,25 @@ export function SearchPanel({
                 }`}
               >
                 {c.label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+          <legend className="mb-2 p-0 text-[15px] font-medium">How far from the town</legend>
+          <div className="flex flex-wrap gap-2">
+            {RADIUS_OPTIONS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                aria-pressed={radiusMi === r}
+                onClick={() => setRadiusMi(r)}
+                className={`min-h-11 rounded-full px-4 text-[15px] font-medium transition-colors ${
+                  radiusMi === r ? "bg-sky text-on-sky" : "border border-line-strong bg-card text-ink hover:border-ink"
+                }`}
+              >
+                {r} miles
               </button>
             ))}
           </div>

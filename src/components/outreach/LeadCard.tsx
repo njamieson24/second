@@ -32,10 +32,13 @@ const sourceText = (source: string) => {
 /** One business: details, status, Find email, Draft email, the draft, and a note. */
 export function LeadCard({
   lead,
+  showDistance,
   onChange,
   onUsage,
 }: {
   lead: Lead;
+  /** Show "2.3 mi away" (in search results) */
+  showDistance?: boolean;
   onChange: (lead: Lead) => void;
   /** Called with the server's "left today" numbers after a lookup or draft */
   onUsage: (u: { lookupsLeft: number; draftsLeft: number }) => void;
@@ -80,7 +83,8 @@ export function LeadCard({
     onUsage(r.usage);
   }
 
-  const details = [categoryLabel(lead.category), lead.address ?? lead.town].filter(Boolean).join(" · ");
+  const distance = showDistance && lead.distanceMi != null ? `${lead.distanceMi < 0.1 ? "less than 0.1" : lead.distanceMi} mi away` : null;
+  const details = [categoryLabel(lead.category), lead.address ?? lead.town, distance].filter(Boolean).join(" · ");
 
   return (
     <article className="flex flex-col gap-3 rounded-card border border-line bg-card p-[22px]">

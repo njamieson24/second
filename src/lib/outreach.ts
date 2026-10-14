@@ -15,6 +15,18 @@ export const OUTREACH_LIMITS = {
   noteMaxChars: 500,
 } as const;
 
+/** How far a search reaches, in miles. */
+export const RADIUS_OPTIONS = [5, 10, 15, 20] as const;
+export type RadiusMi = (typeof RADIUS_OPTIONS)[number];
+export const DEFAULT_RADIUS: RadiusMi = 10;
+
+/** Miles between two points (straight line). */
+export function milesBetween(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+  return 3958.8 * 2 * Math.asin(Math.sqrt(h));
+}
+
 export const OPT_OUT_LINE = "If you'd rather not hear from me, just let me know.";
 
 export type CategoryId = "cafes" | "restaurants" | "bars" | "bakeries" | "ice_cream" | "salons" | "gyms" | "spa" | "florists" | "retail";
@@ -65,13 +77,15 @@ export type Lead = {
   draftSubject: string | null;
   draftBody: string | null;
   emailCheckedAt: string | null;
+  /** Miles from the town searched (only in search results) */
+  distanceMi?: number | null;
 };
 
 export type OutreachUsage = { lookupsLeft: number; draftsLeft: number; searchesLeft: number };
 
 /**
  * POST /api/outreach
- *   { action: "search", town, state, category, hideChains } -> { status: "leads", leads, reused, usage }
+ *   { action: "search", town, state, category, hideChains, radiusMi } -> { status: "leads", leads, reused, usage }
  *   { action: "find_email", leadId }                         -> { status: "lead", lead, found, message?, usage }
  *   { action: "draft", leadId, goal }                        -> { status: "draft", subject, body, lead, usage }
  *   { action: "add_manual", name, website, email, category } -> { status: "lead", lead, found: false, usage }

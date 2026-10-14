@@ -194,3 +194,16 @@ end;
 $$;
 revoke execute on function public.claim_nominatim_slot() from public, anon;
 grant execute on function public.claim_nominatim_slot() to authenticated;
+
+-- ---------- Search by distance (added after the first version; safe to run again) ----------
+-- Where each business is, so searches can cover "within 10 miles" and show how far away it is.
+alter table public.outreach_leads add column if not exists lat double precision check (lat is null or lat between -90 and 90);
+alter table public.outreach_leads add column if not exists lon double precision check (lon is null or lon between -180 and 180);
+create index if not exists outreach_leads_place on public.outreach_leads (user_id, category, lat, lon);
+-- The middle of each town searched.
+alter table public.outreach_towns add column if not exists lat double precision check (lat is null or lat between -90 and 90);
+alter table public.outreach_towns add column if not exists lon double precision check (lon is null or lon between -180 and 180);
+-- Old town lookups have no middle point; they're only a cache, so they're looked up again.
+delete from public.outreach_towns where lat is null or lon is null;
+-- How far each search reached (miles). Saved results are reused only for the same distance.
+alter table public.outreach_searches add column if not exists radius_mi integer not null default 0 check (radius_mi between 0 and 50);

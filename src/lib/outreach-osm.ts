@@ -3,7 +3,7 @@
 // (fast, 1 to 2 seconds). Overpass is the backup: more complete, but often overloaded ("504").
 // Data © OpenStreetMap contributors (the page shows the required credit).
 
-import { CATEGORIES, type CategoryId } from "./outreach";
+import { CATEGORIES, milesBetween, type CategoryId } from "./outreach";
 
 export const USER_AGENT = "Second/1.0 (https://second-w28n.vercel.app)";
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
@@ -25,7 +25,8 @@ export function overpassServers(): string[] {
   return test?.length ? test : DEFAULT_OVERPASS;
 }
 
-export type Town = { relationId: number; displayName: string };
+export type Point = { lat: number; lon: number };
+export type Town = Point & { relationId: number; displayName: string };
 
 /** Look up a town ("Bradley Beach, NJ") and return its OpenStreetMap relation, or null. */
 export async function geocodeTown(town: string, state: string): Promise<Town | null> {
@@ -33,26 +34,38 @@ export async function geocodeTown(town: string, state: string): Promise<Town | n
   const url = `${NOMINATIM}?${new URLSearchParams({ q, format: "jsonv2", limit: "5" })}`;
   const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`nominatim ${res.status}`);
-  const list = (await res.json()) as { osm_type?: string; osm_id?: number; display_name?: string; category?: string; type?: string }[];
+  const list = (await res.json()) as { osm_type?: string; osm_id?: number; display_name?: string; category?: string; type?: string; lat?: string; lon?: string }[];
   const place =
     list.find((r) => r.osm_type === "relation" && (r.category === "boundary" || r.category === "place")) ?? list.find((r) => r.osm_type === "relation");
-  return place?.osm_id ? { relationId: place.osm_id, displayName: place.display_name ?? q } : null;
+  const lat = Number(place?.lat);
+  const lon = Number(place?.lon);
+  if (!place?.osm_id || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { relationId: place.osm_id, displayName: place.display_name ?? q, lat, lon };
 }
 
 export const areaIdFor = (relationId: number) => 3_600_000_000 + relationId;
 
 const OTHER_SHOPS = ["bakery", "pastry", "hairdresser", "beauty", "massage", "florist"];
 
-/** The Overpass query for one category in one area (only places with a name). */
-export function overpassQuery(areaId: number, category: CategoryId): string {
+/** The Overpass query for one category within `radiusMi` miles of a point (only places with a name). */
+export function overpassQuery(center: Point, radiusMi: number, category: CategoryId): string {
   const cat = CATEGORIES.find((c) => c.id === category) ?? CATEGORIES[0];
+  const around = `(around:${Math.round(radiusMi * 1609.34)},${center.lat.toFixed(5)},${center.lon.toFixed(5)})`;
   const parts = cat.tags.map(([k, v]) =>
-    v === "*" ? `nwr["${k}"]["${k}"!~"^(${OTHER_SHOPS.join("|")})$"]["name"](area.a);` : `nwr["${k}"="${v}"]["name"](area.a);`,
+    v === "*" ? `nwr["${k}"]["${k}"!~"^(${OTHER_SHOPS.join("|")})$"]["name"]${around};` : `nwr["${k}"="${v}"]["name"]${around};`,
   );
-  return `[out:json][timeout:25];\narea(id:${areaId})->.a;\n(\n  ${parts.join("\n  ")}\n);\nout center tags 400;`;
+  return `[out:json][timeout:25];\n(\n  ${parts.join("\n  ")}\n);\nout center tags 600;`;
 }
 
-export type OsmElement = { type: "node" | "way" | "relation"; id: number; tags?: Record<string, string> };
+export type OsmElement = {
+  type: "node" | "way" | "relation";
+  id: number;
+  lat?: number;
+  lon?: number;
+  /** Overpass gives ways and relations a middle point */
+  center?: Point;
+  tags?: Record<string, string>;
+};
 
 /** The map tags Nominatim searches for each category (it indexes each place by its main tag). */
 const NOMINATIM_TAGS: Record<CategoryId, [string, string][]> = {
@@ -69,50 +82,88 @@ const NOMINATIM_TAGS: Record<CategoryId, [string, string][]> = {
 };
 
 type NominatimPlace = {
+  place_id?: number;
   osm_type?: string;
   osm_id?: number;
   category?: string;
   type?: string;
   name?: string;
+  lat?: string;
+  lon?: string;
   extratags?: Record<string, string> | null;
   address?: Record<string, string> | null;
 };
 
+/** At most this many Nominatim requests per search (each waits for its 1-a-second turn). */
+const NOMINATIM_MAX_REQUESTS = 12;
+const PAGE = 40;
+
 /**
- * Businesses of one kind in and near a town, from Nominatim (up to 40 per map tag).
- * `claimSlot` waits for the app-wide 1-lookup-a-second turn before each request.
+ * Businesses of one kind within `radiusMi` miles of a point, from Nominatim.
+ * Nominatim doesn't sort by distance, so this searches growing boxes (2 miles, 5, 10, ...) and
+ * stops once it has `max` places in range: the closest ones come first. Each box is paged with
+ * exclude_place_ids. `claimSlot` waits for the app-wide 1-lookup-a-second turn before each request.
  * Returns null only if every request failed (then the caller tries Overpass).
  */
-export async function nominatimPlaces(town: string, state: string, category: CategoryId, claimSlot: () => Promise<void>): Promise<OsmElement[] | null> {
-  const where = [town, state].filter(Boolean).join(", ");
-  const out: OsmElement[] = [];
+export async function nominatimPlaces(
+  center: Point,
+  radiusMi: number,
+  category: CategoryId,
+  claimSlot: () => Promise<void>,
+  max: number,
+): Promise<OsmElement[] | null> {
+  const rings = [...[2, 5, 10, 15].filter((r) => r < radiusMi), radiusMi];
+  const seen = new Map<string, number[]>(); // per map tag: place ids already returned
+  const out = new Map<string, OsmElement>();
+  let requests = 0;
   let answered = false;
-  for (const [k, v] of NOMINATIM_TAGS[category]) {
-    try {
-      await claimSlot();
-      const url = `${NOMINATIM}?${new URLSearchParams({ q: `[${k}=${v}] ${where}`, format: "jsonv2", extratags: "1", addressdetails: "1", limit: "40", countrycodes: "us" })}`;
-      const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
-      if (!res.ok) {
-        console.error("outreach: nominatim", res.status);
-        continue;
+  const inRange = () => [...out.values()].filter((e) => milesBetween(center, { lat: e.lat!, lon: e.lon! }) <= radiusMi).length;
+
+  for (const ring of rings) {
+    const dLat = ring / 69;
+    const dLon = ring / (69 * Math.cos((center.lat * Math.PI) / 180));
+    const viewbox = [center.lon - dLon, center.lat + dLat, center.lon + dLon, center.lat - dLat].map((n) => n.toFixed(5)).join(",");
+    for (const [k, v] of NOMINATIM_TAGS[category]) {
+      const ids = seen.get(`${k}=${v}`) ?? [];
+      seen.set(`${k}=${v}`, ids);
+      // Page through this box until it runs out, there are enough, or the request budget is used.
+      while (requests < NOMINATIM_MAX_REQUESTS && inRange() < max) {
+        requests++;
+        let page: NominatimPlace[];
+        try {
+          await claimSlot();
+          const params = new URLSearchParams({ q: `[${k}=${v}]`, viewbox, bounded: "1", format: "jsonv2", extratags: "1", addressdetails: "1", limit: String(PAGE) });
+          if (ids.length) params.set("exclude_place_ids", ids.join(","));
+          const res = await fetch(`${NOMINATIM}?${params}`, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+          if (!res.ok) {
+            console.error("outreach: nominatim", res.status);
+            break;
+          }
+          page = (await res.json()) as NominatimPlace[];
+          answered = true;
+        } catch (error) {
+          console.error("outreach: nominatim", error instanceof Error ? error.name : "failed");
+          break;
+        }
+        for (const p of page) {
+          if (p.place_id) ids.push(p.place_id);
+          const lat = Number(p.lat);
+          const lon = Number(p.lon);
+          if (p.category !== k || p.type !== v || !p.name || !p.osm_id || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+          if (p.osm_type !== "node" && p.osm_type !== "way" && p.osm_type !== "relation") continue;
+          const a = p.address ?? {};
+          const tags: Record<string, string> = { ...(p.extratags ?? {}), name: p.name };
+          if (a.house_number) tags["addr:housenumber"] = a.house_number;
+          if (a.road) tags["addr:street"] = a.road;
+          const city = a.city ?? a.town ?? a.village ?? a.hamlet ?? a.suburb;
+          if (city) tags["addr:city"] = city;
+          out.set(`${p.osm_type}/${p.osm_id}`, { type: p.osm_type, id: p.osm_id, lat, lon, tags });
+        }
+        if (page.length < PAGE) break;
       }
-      answered = true;
-      for (const p of (await res.json()) as NominatimPlace[]) {
-        if (p.category !== k || p.type !== v || !p.name || !p.osm_id) continue;
-        if (p.osm_type !== "node" && p.osm_type !== "way" && p.osm_type !== "relation") continue;
-        const a = p.address ?? {};
-        const tags: Record<string, string> = { ...(p.extratags ?? {}), name: p.name };
-        if (a.house_number) tags["addr:housenumber"] = a.house_number;
-        if (a.road) tags["addr:street"] = a.road;
-        const city = a.city ?? a.town ?? a.village ?? a.hamlet;
-        if (city) tags["addr:city"] = city;
-        out.push({ type: p.osm_type, id: p.osm_id, tags });
-      }
-    } catch (error) {
-      console.error("outreach: nominatim", error instanceof Error ? error.name : "failed");
     }
   }
-  return answered ? out : null;
+  return answered ? [...out.values()] : null;
 }
 
 /** Ask each Overpass server in turn; fall back if one is busy, fails, or times out. */
@@ -158,6 +209,10 @@ export type MapPlace = {
   instagram: string | null;
   facebook: string | null;
   chain: boolean;
+  lat: number | null;
+  lon: number | null;
+  /** The town in its address, if the map has one */
+  city: string | null;
 };
 
 const clean = (v: string | undefined, max = 500) => (v && v.trim() ? v.trim().slice(0, max) : null);
@@ -193,6 +248,9 @@ export function toPlace(e: OsmElement): MapPlace | null {
     instagram: socialUrl(t["contact:instagram"], "instagram"),
     facebook: socialUrl(t["contact:facebook"], "facebook"),
     chain: Boolean(t.brand || t["brand:wikidata"]),
+    lat: e.lat ?? e.center?.lat ?? null,
+    lon: e.lon ?? e.center?.lon ?? null,
+    city: clean(t["addr:city"], 120),
   };
 }
 
