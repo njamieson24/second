@@ -148,9 +148,22 @@ function decodeEntities(html: string): string {
 
 export type FoundEmail = { email: string; mailto: boolean };
 
+/**
+ * Only what a visitor can see (plus the business details some sites add for search engines).
+ * Style code, scripts and hidden comments carry addresses that aren't the business's, like a
+ * font designer's email in a font license.
+ */
+export function visibleHtml(html: string): string {
+  return html
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script\b(?![^>]*application\/ld\+json)[\s\S]*?<\/script>/gi, " ")
+    .replace(/<(noscript|template|svg)\b[\s\S]*?<\/\1>/gi, " ");
+}
+
 /** Emails from mailto: links and email-shaped text (also "name [at] site [dot] com"). */
 export function extractEmails(html: string): FoundEmail[] {
-  const text = decodeEntities(html);
+  const text = decodeEntities(visibleHtml(html));
   const found = new Map<string, FoundEmail>();
   for (const m of text.matchAll(/mailto:([^"'?>\s]+)/gi)) {
     let e = m[1];
