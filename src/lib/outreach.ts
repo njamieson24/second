@@ -49,8 +49,10 @@ export const CATEGORIES: { id: CategoryId; label: string; tags: [string, string]
 ];
 /** Searches made before a category's map tags last changed aren't reused (their results were wrong). */
 export const CATEGORY_CHANGED: Partial<Record<CategoryId, string>> = {
-  gyms: "2026-10-14T12:00:00Z",
-  spa: "2026-10-14T12:00:00Z",
+  // After the deploy that dropped sports centres and spas (an earlier, too-early cutoff let
+  // searches made by the old code be reused).
+  gyms: "2026-10-15T22:00:00Z",
+  spa: "2026-10-15T22:00:00Z",
 };
 
 export const categoryLabel = (id: string) => CATEGORIES.find((c) => c.id === id)?.label ?? "Business";
@@ -93,7 +95,7 @@ export type OutreachUsage = { lookupsLeft: number; draftsLeft: number; searchesL
 
 /**
  * POST /api/outreach
- *   { action: "search", town, state, category, hideChains, radiusMi } -> { status: "leads", leads, reused, usage }
+ *   { action: "search", town, state, category, hideChains, radiusMi, fresh? } -> { status: "leads", leads, reused, usage }
  *   { action: "find_email", leadId }                         -> { status: "lead", lead, found, message?, usage }
  *   { action: "draft", leadId, goal }                        -> { status: "draft", subject, body, lead, usage }
  *   { action: "add_manual", name, website, email, category } -> { status: "lead", lead, found: false, usage }

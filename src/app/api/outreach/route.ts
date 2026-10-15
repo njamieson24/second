@@ -126,6 +126,8 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
   const state = text(body.state, 40);
   const category = CATEGORIES.find((c) => c.id === body.category)?.id as CategoryId | undefined;
   const hideChains = body.hideChains !== false;
+  // "Search the map again": skip the saved results (still counts toward the daily searches).
+  const fresh = body.fresh === true;
   const radiusMi: RadiusMi = RADIUS_OPTIONS.find((r) => r === Number(body.radiusMi)) ?? DEFAULT_RADIUS;
   if (!town) return fail("Please type a town.", 400);
   if (!category) return fail("Please pick a kind of business.", 400);
@@ -195,7 +197,7 @@ async function search(db: SupabaseClient, userId: string, business: Business, bo
     console.error("outreach: search cache", recent.error.code);
     return fail("Outreach needs a quick database update. Please try again later.", 500);
   }
-  if (recent.data?.length) {
+  if (recent.data?.length && !fresh) {
     const saved = await leadsFor();
     if (saved.length || recent.data[0].result_count === 0) return send({ status: "leads", leads: saved, reused: true, town: label, usage: await usageOf(db, userId) });
   }

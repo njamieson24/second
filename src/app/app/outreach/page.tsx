@@ -35,6 +35,8 @@ export default function OutreachPage() {
   const [searching, setSearching] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [lastSearch, setLastSearch] = useState<SearchInput | null>(null);
+  const [reused, setReused] = useState(false);
   const [visible, setVisible] = useState(PAGE);
 
   useEffect(() => {
@@ -53,7 +55,7 @@ export default function OutreachPage() {
   const area = splitArea(business.area ?? "");
   const initial: SearchInput = { ...area, category: business.type === "fitness" ? "cafes" : "gyms", hideChains: true, radiusMi: DEFAULT_RADIUS };
 
-  async function search(input: SearchInput) {
+  async function search(input: SearchInput & { fresh?: boolean }) {
     const what = categoryLabel(input.category).toLowerCase();
     setSearching(`Looking at the map for ${what} within ${input.radiusMi} miles of ${input.town}…`);
     setProblem(null);
@@ -62,11 +64,15 @@ export default function OutreachPage() {
     setSearching(null);
     if (!r.ok) return setProblem(r.message);
     setUsage(r.usage);
+    setLastSearch(input);
+    setReused(r.reused);
     setLeads((all) => {
       const byId = new Map((all ?? []).map((l) => [l.id, l]));
       for (const l of r.leads) byId.set(l.id, l);
       return [...byId.values()];
     });
+    // A fresh search can remove places the map no longer lists: reload the full list too.
+    if (!r.reused) getLeads().then((all) => setLeads(all.leads));
     setScope({ label: `${categoryLabel(input.category)} within ${input.radiusMi} miles of ${r.town}`, town: r.town, ids: new Set(r.leads.map((l) => l.id)) });
     setFilter("all");
     setVisible(PAGE);
@@ -120,9 +126,16 @@ export default function OutreachPage() {
         </p>
       )}
       {note && !searching && (
-        <p role="status" className="m-0 text-[15px] text-muted">
-          {note}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p role="status" className="m-0 text-[15px] text-muted">
+            {note}
+          </p>
+          {reused && lastSearch && (
+            <button type="button" onClick={() => search({ ...lastSearch, fresh: true })} className="min-h-11 text-[15px] text-sky-ink underline">
+              Search the map again
+            </button>
+          )}
+        </div>
       )}
 
       <section aria-labelledby="leads-heading" className="flex flex-col gap-4">
