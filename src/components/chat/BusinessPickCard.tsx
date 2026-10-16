@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Check, Globe, Mail, Phone, Search, Sparkles, Star } from "lucide-react";
 import { Button } from "@/components/Button";
-import { Chip } from "@/components/Chip";
+import Link from "next/link";
 import { DraftPanel } from "@/components/outreach/LeadCard";
 import type { BusinessCard } from "@/lib/chat";
 import { categoryLabel, OUTREACH_LIMITS, type Lead } from "@/lib/outreach";
@@ -135,9 +135,12 @@ export function BusinessPickCard({ card, onChange }: { card: BusinessCard; onCha
             {busy === "draft" ? "Second is writing…" : "Draft email"}
           </Button>
           {card.saved ? (
-            <Chip tone="mint" className="inline-flex min-h-11 items-center gap-1 self-center">
-              <Check size={14} strokeWidth={2.6} aria-hidden="true" /> {savedNote ?? "In your Outreach list"}
-            </Chip>
+            <Link
+              href="/outreach"
+              className="inline-flex min-h-11 items-center gap-1.5 self-center rounded-full bg-mint-tint px-4 text-sm font-semibold text-mint-deep no-underline hover:underline"
+            >
+              <Check size={14} strokeWidth={2.6} aria-hidden="true" /> {savedNote ?? "In your Outreach list"} · See it
+            </Link>
           ) : (
             <Button size="sm" variant="soft" weight="medium" onClick={save} disabled={busy !== null}>
               {busy === "save" ? "Saving…" : "Save to Outreach"}

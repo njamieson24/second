@@ -211,7 +211,7 @@ export const gamePlan = {
       title: "Email 12 gyms and yoga studios about a chair massage day",
       detail: "Each email is written and personalized",
       action: "Review and send",
-      href: "/app/outreach",
+      href: "/outreach",
       primary: true,
     },
     {
