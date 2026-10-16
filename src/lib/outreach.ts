@@ -89,6 +89,8 @@ export type Lead = {
   emailCheckedAt: string | null;
   /** Miles from the town searched (only in search results) */
   distanceMi?: number | null;
+  /** In the owner's Outreach list. Chat results aren't until they tap Save to Outreach. */
+  saved?: boolean;
 };
 
 export type OutreachUsage = { lookupsLeft: number; draftsLeft: number; searchesLeft: number };

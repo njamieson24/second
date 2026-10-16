@@ -6,7 +6,8 @@
 import { CATEGORIES, milesBetween, type CategoryId } from "./outreach";
 
 export const USER_AGENT = "Second/1.0 (https://second-w28n.vercel.app)";
-const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+/** OUTREACH_NOMINATIM_URL is TEST-ONLY (never set in Vercel): points town and business searches elsewhere. */
+const nominatim = () => process.env.OUTREACH_NOMINATIM_URL?.trim() || "https://nominatim.openstreetmap.org/search";
 // overpass-api.de runs three instances; each one answers "busy" (504) now and then, so all three are
 // tried before the community mirrors.
 const DEFAULT_OVERPASS = [
@@ -31,7 +32,7 @@ export type Town = Point & { relationId: number; displayName: string };
 /** Look up a town ("Bradley Beach, NJ") and return its OpenStreetMap relation, or null. */
 export async function geocodeTown(town: string, state: string): Promise<Town | null> {
   const q = [town, state, "USA"].filter(Boolean).join(", ");
-  const url = `${NOMINATIM}?${new URLSearchParams({ q, format: "jsonv2", limit: "5" })}`;
+  const url = `${nominatim()}?${new URLSearchParams({ q, format: "jsonv2", limit: "5" })}`;
   const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`nominatim ${res.status}`);
   const list = (await res.json()) as { osm_type?: string; osm_id?: number; display_name?: string; category?: string; type?: string; lat?: string; lon?: string }[];
@@ -112,6 +113,8 @@ export async function nominatimPlaces(
   category: CategoryId,
   claimSlot: () => Promise<void>,
   max: number,
+  /** Stop starting new requests after this time (ms since 1970) */
+  deadline = Infinity,
 ): Promise<{ elements: OsmElement[]; complete: boolean } | null> {
   let complete = true;
   const rings = [...[2, 5, 10, 15].filter((r) => r < radiusMi), radiusMi];
@@ -130,7 +133,7 @@ export async function nominatimPlaces(
       seen.set(`${k}=${v}`, ids);
       // Page through this box until it runs out, there are enough, or the request budget is used.
       while (true) {
-        if (requests >= NOMINATIM_MAX_REQUESTS || inRange() >= max) {
+        if (requests >= NOMINATIM_MAX_REQUESTS || inRange() >= max || Date.now() > deadline - 2_500) {
           complete = false;
           break;
         }
@@ -140,7 +143,7 @@ export async function nominatimPlaces(
           await claimSlot();
           const params = new URLSearchParams({ q: `[${k}=${v}]`, viewbox, bounded: "1", format: "jsonv2", extratags: "1", addressdetails: "1", limit: String(PAGE) });
           if (ids.length) params.set("exclude_place_ids", ids.join(","));
-          const res = await fetch(`${NOMINATIM}?${params}`, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+          const res = await fetch(`${nominatim()}?${params}`, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(Math.max(1_000, Math.min(10_000, deadline - Date.now()))) });
           if (!res.ok) {
             console.error("outreach: nominatim", res.status);
             complete = false;
@@ -175,10 +178,11 @@ export async function nominatimPlaces(
 }
 
 /** Ask each Overpass server in turn; fall back if one is busy, fails, or times out. */
-export async function runOverpass(query: string): Promise<{ elements: OsmElement[]; server: string } | null> {
+/** `deadline` (ms since 1970) cuts the total time short, e.g. inside a chat message. */
+export async function runOverpass(query: string, deadline = Infinity): Promise<{ elements: OsmElement[]; server: string } | null> {
   const started = Date.now();
   for (const server of overpassServers()) {
-    const left = TOTAL_BUDGET_MS - (Date.now() - started);
+    const left = Math.min(TOTAL_BUDGET_MS - (Date.now() - started), deadline - Date.now());
     if (left < 3_000) break;
     try {
       const res = await fetch(server, {

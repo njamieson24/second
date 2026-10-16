@@ -6,9 +6,10 @@ import { AppShell, ModeOnly } from "@/components/AppShell";
 import { FormMessage } from "@/components/AuthShell";
 import { Button } from "@/components/Button";
 import { ChatBubble } from "@/components/ChatBubble";
+import { BusinessPickCard } from "@/components/chat/BusinessPickCard";
 import { Chip } from "@/components/Chip";
 import { SampleTag } from "@/components/EmptyStates";
-import { CHAT_MAX_CHARS, NOTES_EVERY, type ChatProposal, type ChatRole } from "@/lib/chat";
+import { CHAT_MAX_CHARS, NOTES_EVERY, type BusinessCard, type ChatProposal, type ChatRole } from "@/lib/chat";
 import type { Mode } from "@/lib/mode";
 import { useLoadedData } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
@@ -47,7 +48,7 @@ function Conversation() {
 
 // ---------- The real chat (logged-in accounts) ----------
 
-type Shown = { id: string; role: ChatRole; content: string; proposals: ChatProposal[] };
+type Shown = { id: string; role: ChatRole; content: string; proposals: ChatProposal[]; businessCards: BusinessCard[]; status?: string };
 
 const STARTERS: Record<Mode, string[]> = {
   launch: ["What's my next step?", "How much should I save before opening?", "Do I need an LLC?"],
@@ -76,7 +77,7 @@ function LiveChat() {
     getChatHistory().then((result) => {
       if (!live) return;
       if (result.ok) {
-        setMessages(result.messages.map((m) => ({ id: m.id, role: m.role, content: m.content, proposals: m.proposals })));
+        setMessages(result.messages.map((m) => ({ id: m.id, role: m.role, content: m.content, proposals: m.proposals, businessCards: m.businessCards })));
         setLoading("ready");
         // Notes pass trigger 1: opening chat. The server skips it if nothing is new.
         if (result.messages.length) void refreshNotes();
@@ -103,14 +104,20 @@ function LiveChat() {
     const replyId = `reply-${stamp}`;
     setMessages((m) => [
       ...m,
-      { id: askId, role: "user", content: message, proposals: [] },
-      { id: replyId, role: "assistant", content: "", proposals: [] },
+      { id: askId, role: "user", content: message, proposals: [], businessCards: [] },
+      { id: replyId, role: "assistant", content: "", proposals: [], businessCards: [] },
     ]);
-    const result = await sendChatMessage(
-      message,
-      (piece) => setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, content: x.content + piece } : x))),
-      (_messageId, proposals) => setMessages((m) => m.map((x) => (x.id === replyId ? { ...x, proposals } : x))),
-    );
+    const update = (change: (x: Shown) => Shown) => setMessages((m) => m.map((x) => (x.id === replyId ? change(x) : x)));
+    const result = await sendChatMessage(message, {
+      onText: (piece) => update((x) => ({ ...x, content: x.content + piece })),
+      onProposals: (_messageId, proposals) => update((x) => ({ ...x, proposals })),
+      onStatus: (status) => update((x) => ({ ...x, status })),
+      onBusinessCards: (_messageId, businessCards) => update((x) => ({ ...x, businessCards })),
+      // An email found in chat also shows on any earlier card for the same business.
+      onCardEmail: (leadId, email, emailSource) =>
+        setMessages((m) => m.map((x) => ({ ...x, businessCards: x.businessCards.map((c) => (c.leadId === leadId ? { ...c, email, emailSource } : c)) }))),
+    });
+    update((x) => ({ ...x, status: undefined }));
     setSending(false);
     if (result.ok) {
       setRemaining(result.remaining);
@@ -164,8 +171,29 @@ function LiveChat() {
               key={m.id}
               from="second"
               extras={
-                m.proposals.length > 0 && (
+                (m.proposals.length > 0 || m.businessCards.length > 0 || m.status) && (
                   <div className="flex flex-col gap-2.5">
+                    {m.status && (
+                      <p role="status" className="m-0 text-sm text-muted">
+                        {m.status}
+                      </p>
+                    )}
+                    {m.businessCards.map((c) => (
+                      <BusinessPickCard
+                        key={c.id}
+                        card={c}
+                        onChange={(next) =>
+                          setMessages((all) =>
+                            all.map((x) => ({
+                              ...x,
+                              businessCards: x.businessCards.map((y) =>
+                                y.id === c.id ? next : y.leadId === c.leadId ? { ...y, email: next.email, emailSource: next.emailSource, saved: next.saved } : y,
+                              ),
+                            })),
+                          )
+                        }
+                      />
+                    ))}
                     {m.proposals.map((p) => (
                       <ProposalCard
                         key={p.id}

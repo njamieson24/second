@@ -286,6 +286,8 @@ export type LookupResult = {
 export async function lookupEmail(
   lead: { name: string; website: string | null; instagram: string | null; facebook: string | null; town: string },
   claimTavily: () => Promise<boolean>,
+  /** skipWebsite: their website was already checked recently, go straight to the web search */
+  opts: { skipWebsite?: boolean } = {},
 ): Promise<LookupResult> {
   const out: LookupResult = { email: null, emailSource: null, website: lead.website, contactPage: null, instagram: lead.instagram, facebook: lead.facebook, pagesFetched: 0, usedTavily: false };
 
@@ -328,7 +330,7 @@ export async function lookupEmail(
     }
   };
 
-  if (out.website) await scanSite(out.website);
+  if (out.website && !opts.skipWebsite) await scanSite(out.website);
 
   if (!out.email && (await claimTavily())) {
     out.usedTavily = true;

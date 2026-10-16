@@ -52,7 +52,42 @@ export type ChatProposal = {
   status: ProposalStatus;
 };
 
-export type SavedChatMessage = { id: string; role: ChatRole; content: string; createdAt: string; proposals: ChatProposal[] };
+// ---------- Business picks (Second found local businesses on the map) ----------
+
+/**
+ * One business Second picked, shown as a card under its reply. Built on the server from the
+ * map data and the checked pick, never from the model's free text: names, distances and
+ * emails are always real.
+ */
+export type BusinessCard = {
+  id: string;
+  messageId: string;
+  leadId: string;
+  name: string;
+  category: string;
+  address: string | null;
+  town: string | null;
+  distanceMi: number | null;
+  website: string | null;
+  phone: string | null;
+  email: string | null;
+  /** Where the email was found: a page address, "openstreetmap" or "added by you" */
+  emailSource: string | null;
+  /** In the owner's Outreach list */
+  saved: boolean;
+  why: string;
+  dealIdea: string;
+  nextStep: string;
+};
+
+export type SavedChatMessage = {
+  id: string;
+  role: ChatRole;
+  content: string;
+  createdAt: string;
+  proposals: ChatProposal[];
+  businessCards: BusinessCard[];
+};
 
 // ---------- Business notes ----------
 
@@ -62,11 +97,17 @@ export type BusinessNote = { id: string; note: string; createdAt: string; update
  * The reply streams back as one JSON object per line:
  *   {"type":"text","text":"..."}                     a piece of the reply
  *   {"type":"proposals","messageId":"...","proposals":[...]}   suggested updates (cards)
+ *   {"type":"status","text":"Looking at the map…"}   what Second is doing (not part of the reply)
+ *   {"type":"business_cards","messageId":"...","cards":[...]}  Second's business picks
+ *   {"type":"card_email","leadId":"...","email":"...","emailSource":"..."}  an email found for a card
  *   {"type":"done","remaining":12}                   finished, messages left today
  *   {"type":"error","message":"...","limit":true?}   something went wrong (shown as is)
  */
 export type ChatStreamEvent =
   | { type: "text"; text: string }
   | { type: "proposals"; messageId: string; proposals: ChatProposal[] }
+  | { type: "status"; text: string }
+  | { type: "business_cards"; messageId: string; cards: BusinessCard[] }
+  | { type: "card_email"; leadId: string; email: string | null; emailSource: string | null }
   | { type: "done"; remaining: number }
   | { type: "error"; message: string; limit?: boolean };

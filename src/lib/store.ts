@@ -9,6 +9,7 @@
 import type { BusinessType } from "./business-types";
 import type { BetaProblems, BetaSignup } from "./beta";
 import type {
+  BusinessCard,
   BusinessNote,
   ChatProposal,
   ChatRole,
@@ -474,6 +475,38 @@ export async function getChatHistory(count = 100): Promise<ChatHistoryResult> {
     (cards ?? [])
       .filter((c) => c.message_id === messageId)
       .map((c) => ({ id: c.id, messageId, summary: c.summary, change: c.details as ProposalChange, status: c.status as ProposalStatus }));
+  // Business picks are optional too (chat-outreach.sql), and disappear with their lead (Start over).
+  const { data: picks } = ids.length
+    ? await supabase()
+        .from("chat_business_cards")
+        .select("id, message_id, lead_id, why, deal_idea, next_step, distance_mi, outreach_leads(name, category, address, town, website, phone, email, email_source, saved)")
+        .in("message_id", ids)
+        .order("created_at")
+    : { data: [] };
+  const picksFor = (messageId: string): BusinessCard[] =>
+    ((picks ?? []) as Record<string, unknown>[])
+      .filter((c) => c.message_id === messageId && c.outreach_leads)
+      .map((c) => {
+        const l = c.outreach_leads as Record<string, unknown>;
+        return {
+          id: c.id as string,
+          messageId,
+          leadId: c.lead_id as string,
+          name: l.name as string,
+          category: l.category as string,
+          address: (l.address as string | null) ?? null,
+          town: (l.town as string | null) ?? null,
+          distanceMi: (c.distance_mi as number | null) ?? null,
+          website: (l.website as string | null) ?? null,
+          phone: (l.phone as string | null) ?? null,
+          email: (l.email as string | null) ?? null,
+          emailSource: (l.email_source as string | null) ?? null,
+          saved: l.saved !== false,
+          why: c.why as string,
+          dealIdea: c.deal_idea as string,
+          nextStep: c.next_step as string,
+        };
+      });
   return {
     ok: true,
     messages: data
@@ -483,6 +516,7 @@ export async function getChatHistory(count = 100): Promise<ChatHistoryResult> {
         content: r.content as string,
         createdAt: r.created_at as string,
         proposals: cardsFor(r.id as string),
+        businessCards: picksFor(r.id as string),
       }))
       .reverse(),
   };
@@ -496,11 +530,17 @@ export type ChatSendResult =
  * Ask Second something. The reply streams in through onText, a piece at a time.
  * Goes through the server (/api/chat), which holds the Claude API key and saves both messages.
  */
-export async function sendChatMessage(
-  message: string,
-  onText: (piece: string) => void,
-  onProposals?: (messageId: string, proposals: ChatProposal[]) => void,
-): Promise<ChatSendResult> {
+export type ChatHandlers = {
+  onText: (piece: string) => void;
+  onProposals?: (messageId: string, proposals: ChatProposal[]) => void;
+  /** What Second is doing right now ("Looking at the map…"), not part of the reply */
+  onStatus?: (text: string) => void;
+  onBusinessCards?: (messageId: string, cards: BusinessCard[]) => void;
+  onCardEmail?: (leadId: string, email: string | null, emailSource: string | null) => void;
+};
+
+export async function sendChatMessage(message: string, handlers: ChatHandlers): Promise<ChatSendResult> {
+  const { onText, onProposals, onStatus, onBusinessCards, onCardEmail } = handlers;
   const { data } = await supabase().auth.getSession();
   const token = data.session?.access_token;
   if (!token) return { ok: false, message: "Please log in to chat with Second." };
@@ -526,8 +566,11 @@ export async function sendChatMessage(
         const event = JSON.parse(line) as ChatStreamEvent;
         if (event.type === "text") onText(event.text);
         else if (event.type === "proposals") onProposals?.(event.messageId, event.proposals);
+        else if (event.type === "status") onStatus?.(event.text);
+        else if (event.type === "business_cards") onBusinessCards?.(event.messageId, event.cards);
+        else if (event.type === "card_email") onCardEmail?.(event.leadId, event.email, event.emailSource);
         else if (event.type === "done") result = { ok: true, remaining: event.remaining };
-        else result = { ok: false, message: event.message, limit: event.limit };
+        else if (event.type === "error") result = { ok: false, message: event.message, limit: event.limit };
       }
       if (done) break;
     }
@@ -912,6 +955,7 @@ const rowToLead = (r: LeadRow): Lead => ({
   draftSubject: (r.draft_subject as string | null) ?? null,
   draftBody: (r.draft_body as string | null) ?? null,
   emailCheckedAt: (r.email_checked_at as string | null) ?? null,
+  saved: r.saved !== false,
 });
 
 /** Every saved lead, newest changes first. */
@@ -919,7 +963,8 @@ export async function getLeads(): Promise<{ leads: Lead[]; sample: boolean }> {
   if (await isDemo()) return { leads: demoList(), sample: true };
   const user = await currentUser();
   if (!user) return { leads: [], sample: false };
-  const { data } = await supabase().from("outreach_leads").select("*").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(500);
+  // Only the owner's list: businesses found in chat show up after they tap Save to Outreach.
+  const { data } = await supabase().from("outreach_leads").select("*").eq("user_id", user.id).eq("saved", true).order("updated_at", { ascending: false }).limit(500);
   return { leads: ((data ?? []) as LeadRow[]).map(rowToLead), sample: false };
 }
 
@@ -979,6 +1024,16 @@ export async function addManualLead(input: { name: string; website: string; emai
   }
   const res = await outreachRequest({ action: "add_manual", ...input });
   return res.status === "lead" ? { ok: true, lead: res.lead, found: res.found, usage: res.usage } : { ok: false, message: errorOf(res) };
+}
+
+/** "Save to Outreach" on a chat card: puts that business (and any email found) in the Outreach list. */
+export async function saveLeadToOutreach(leadId: string): Promise<{ ok: true; already: boolean } | { ok: false; message: string }> {
+  if (await isDemo()) return { ok: true, already: false };
+  const { data, error } = await supabase().from("outreach_leads").select("saved").eq("id", leadId).maybeSingle();
+  if (error || !data) return { ok: false, message: "We couldn't find that business anymore. It may have been removed." };
+  if (data.saved) return { ok: true, already: true };
+  const { error: saveError } = await supabase().from("outreach_leads").update({ saved: true, updated_at: new Date().toISOString() }).eq("id", leadId);
+  return saveError ? { ok: false, message: "We couldn't save that. Please try again." } : { ok: true, already: false };
 }
 
 export type LeadChanges = Partial<{ status: LeadStatus; note: string | null; draftSubject: string | null; draftBody: string | null }>;

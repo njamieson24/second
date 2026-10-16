@@ -231,7 +231,7 @@ function GoalBox({ goal, setGoal, busy, onWrite, onCancel }: { goal: string; set
 }
 
 /** The draft: editable subject and body, Copy, open in their own email app, Mark as sent. */
-function DraftPanel({ lead, onSave, onRedo, redoDisabled }: { lead: Lead; onSave: (c: LeadChanges) => void; onRedo: () => void; redoDisabled: boolean }) {
+export function DraftPanel({ lead, onSave, onRedo, redoDisabled }: { lead: Lead; onSave: (c: LeadChanges) => void; onRedo: () => void; redoDisabled: boolean }) {
   const [subject, setSubject] = useState(lead.draftSubject ?? "");
   const [body, setBody] = useState(lead.draftBody ?? "");
   const [copied, setCopied] = useState<"subject" | "body" | null>(null);
