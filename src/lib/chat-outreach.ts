@@ -198,7 +198,7 @@ export type Pick = { resultId: string; why: string; dealIdea: string; nextStep: 
 const VAGUE = /\b(natural (fit|partner|match)|great (fit|partner|match)|perfect (fit|partner|match)|good fit|aligns? (well|perfectly|nicely)|go(es)? (great|well|naturally) together|win-win)\b/i;
 
 /** Guesses about the other business that the map data can't back up. */
-const GUESSES = /\b(upscale|high[- ]end|fancy|popular|busy|bigger|larger|established|well[- ]known|trendy|famous|beloved|wellness[- ]focused|health[- ]focused|health[- ]conscious|(wellness|health) (vibe|menu|crowd)|loyal (customers|following)|big following)\b/i;
+const GUESSES = /\b(upscale|high[- ]end|fancy|popular|busy|bigger|larger|smaller|established|well[- ]known|trendy|famous|beloved|(more |very )?specialized|independent|family[- ]owned|local favorite|wellness[- ]focused|health[- ]focused|health[- ]conscious|(wellness|health) (vibe|menu|crowd)|loyal (customers|following)|big following)\b/i;
 
 const AGREED = /\b(they('ve| have)? (agreed|signed up|said yes)|(is|are) (confirmed|on board)|already (agreed|offers?|partners?))\b/i;
 

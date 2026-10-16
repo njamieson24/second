@@ -965,7 +965,20 @@ export async function getLeads(): Promise<{ leads: Lead[]; sample: boolean }> {
   if (!user) return { leads: [], sample: false };
   // Only the owner's list: businesses found in chat show up after they tap Save to Outreach.
   const { data } = await supabase().from("outreach_leads").select("*").eq("user_id", user.id).eq("saved", true).order("updated_at", { ascending: false }).limit(500);
-  return { leads: ((data ?? []) as LeadRow[]).map(rowToLead), sample: false };
+  const leads = ((data ?? []) as LeadRow[]).map(rowToLead);
+  // Second's idea from chat, newest card per business.
+  if (leads.length) {
+    const { data: cards } = await supabase()
+      .from("chat_business_cards")
+      .select("lead_id, why, deal_idea")
+      .in("lead_id", leads.map((l) => l.id))
+      .order("created_at", { ascending: false });
+    for (const l of leads) {
+      const c = (cards ?? []).find((x) => x.lead_id === l.id);
+      if (c) l.idea = { why: c.why as string, dealIdea: c.deal_idea as string };
+    }
+  }
+  return { leads, sample: false };
 }
 
 /** Lookups, drafts and map searches left today. */
@@ -1024,6 +1037,17 @@ export async function addManualLead(input: { name: string; website: string; emai
   }
   const res = await outreachRequest({ action: "add_manual", ...input });
   return res.status === "lead" ? { ok: true, lead: res.lead, found: res.found, usage: res.usage } : { ok: false, message: errorOf(res) };
+}
+
+/** "Remove" on the Outreach page: takes it off the list. The business stays in the 30-day cache
+ *  (chat can still suggest it, and Save to Outreach puts it back with its email, notes and draft). */
+export async function removeFromOutreach(leadId: string): Promise<boolean> {
+  if (await isDemo()) {
+    demoLeads = demoList().filter((l) => l.id !== leadId);
+    return true;
+  }
+  const { error } = await supabase().from("outreach_leads").update({ saved: false, updated_at: new Date().toISOString() }).eq("id", leadId);
+  return !error;
 }
 
 /** "Save to Outreach" on a chat card: puts that business (and any email found) in the Outreach list. */

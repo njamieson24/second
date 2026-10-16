@@ -49,6 +49,7 @@ function Outreach() {
   }, []);
 
   const change = (lead: Lead) => setLeads((all) => (all ?? []).map((l) => (l.id === lead.id ? lead : l)));
+  const removed = (id: string) => setLeads((all) => (all ?? []).filter((l) => l.id !== id));
   const all = leads ?? [];
   const shown = all.filter((l) => filter === "all" || l.status === filter);
   const counts = useMemo(() => {
@@ -113,9 +114,9 @@ function Outreach() {
         <EmptyState text="Nothing with that status yet." />
       ) : (
         <>
-          <div className="grid grid-cols-1 items-start gap-4 desk:grid-cols-2">
+          <div className="flex max-w-[860px] flex-col gap-4">
             {shown.slice(0, visible).map((l) => (
-              <LeadCard key={l.id} lead={l} onChange={change} />
+              <LeadCard key={l.id} lead={l} onChange={change} onRemoved={removed} />
             ))}
           </div>
           {shown.length > visible && (

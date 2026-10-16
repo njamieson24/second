@@ -92,6 +92,8 @@ export type Lead = {
   distanceMi?: number | null;
   /** In the owner's Outreach list. Chat results aren't until they tap Save to Outreach. */
   saved?: boolean;
+  /** Second's idea from the chat card it was saved from (newest card) */
+  idea?: { why: string; dealIdea: string } | null;
 };
 
 export type OutreachUsage = { lookupsLeft: number; draftsLeft: number; searchesLeft: number };

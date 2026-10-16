@@ -426,7 +426,17 @@ export function sampleLeads(): Lead[] {
   });
   const draft = sampleOutreachDraft("Pretend Pilates Studio");
   return [
-    lead("1", "gyms", "Pretend Pilates Studio (sample)", { email: "hello@example.com", emailSource: "openstreetmap", status: "drafted", draftSubject: draft.subject, draftBody: draft.body }),
+    lead("1", "gyms", "Pretend Pilates Studio (sample)", {
+      email: "hello@example.com",
+      emailSource: "openstreetmap",
+      status: "drafted",
+      draftSubject: draft.subject,
+      draftBody: draft.body,
+      idea: {
+        why: "Pilates classes leave people with tight hips and backs, and a studio 1 mile away sees them right after class. A recovery add-on gives the studio something extra for its members.",
+        dealIdea: "A pop-up chair massage corner on Saturday mornings after the 9am class. You split what you make with the studio, say 80/20, and they hand out your card.",
+      },
+    }),
     lead("2", "gyms", "Make-Believe Fitness (sample)", { email: "info@example.com", emailSource: "https://www.example.com/contact", status: "contacted", note: "Sent Monday. Follow up next week." }),
     lead("3", "gyms", "Imaginary Yoga Loft (sample)", { email: "studio@example.com", emailSource: "https://www.example.com/about", status: "replied", note: "Wants to talk about a recovery day in May." }),
     lead("4", "cafes", "Sample Street Café (sample)"),
