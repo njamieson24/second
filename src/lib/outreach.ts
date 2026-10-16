@@ -11,7 +11,8 @@ export const OUTREACH_LIMITS = {
   /** Saved search results are reused for this many days */
   reuseDays: 30,
   maxResults: 150,
-  goalMaxChars: 150,
+  /** The goal for a draft: typed on a card, or the deal idea from a chat pick */
+  goalMaxChars: 400,
   noteMaxChars: 500,
 } as const;
 

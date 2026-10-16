@@ -41,7 +41,7 @@ export function LeadCard({
   showDistance?: boolean;
   onChange: (lead: Lead) => void;
   /** Called with the server's "left today" numbers after a lookup or draft */
-  onUsage: (u: { lookupsLeft: number; draftsLeft: number }) => void;
+  onUsage?: (u: { lookupsLeft: number; draftsLeft: number }) => void;
 }) {
   const [busy, setBusy] = useState<"email" | "draft" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -68,7 +68,7 @@ export function LeadCard({
     setBusy(null);
     if (!r.ok) return setMessage(r.message);
     onChange(r.lead);
-    onUsage(r.usage);
+    onUsage?.(r.usage);
     if (!r.found) setMessage(r.message ?? "No public email found. Try their contact page or Instagram.");
   }
 
@@ -80,7 +80,7 @@ export function LeadCard({
     if (!r.ok) return setMessage(r.message);
     setGoalOpen(false);
     onChange(r.lead);
-    onUsage(r.usage);
+    onUsage?.(r.usage);
   }
 
   const distance = showDistance && lead.distanceMi != null ? `${lead.distanceMi < 0.1 ? "less than 0.1" : lead.distanceMi} mi away` : null;

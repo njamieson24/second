@@ -102,7 +102,11 @@ async function draft(db: SupabaseClient, userId: string, business: Business, lea
     db.from("events").select("*").eq("user_id", userId),
   ]);
   const clientNames = knownClientNames(((txs.data ?? []) as TransactionRow[]).map(toTransaction), ((evs.data ?? []) as EventRow[]).map(toEvent));
-  const allowedNumbers = new Set(business.services.flatMap((s) => [String(s.price), ...(s.minutes ? [String(s.minutes)] : [])]));
+  // Their prices and minutes, plus any number in the goal (e.g. the "80/20" split from a chat idea).
+  const allowedNumbers = new Set([
+    ...business.services.flatMap((s) => [String(s.price), ...(s.minutes ? [String(s.minutes)] : [])]),
+    ...(goal.match(/\d[\d,.]*/g) ?? []).map((n) => n.replace(/[,]/g, "").replace(/\.$/, "")),
+  ]);
   const prompt = draftPrompt({
     owner: {
       name: business.ownerName,

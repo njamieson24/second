@@ -75,11 +75,11 @@ export function BusinessPickCard({ card, onChange }: { card: BusinessCard; onCha
 
       <div className="flex flex-col gap-2 text-[15px] leading-normal">
         <p className="m-0">
-          <span className="font-semibold">Why this one: </span>
+          <span className="font-semibold">Why it works: </span>
           {card.why}
         </p>
         <p className="m-0 rounded-row bg-mint-tint px-3 py-2 text-mint-heading">
-          <span className="font-semibold">An idea: </span>
+          <span className="font-semibold">The idea: </span>
           {card.dealIdea}
         </p>
         <p className="m-0 text-muted">{card.nextStep}</p>

@@ -70,11 +70,13 @@ const NOT_SET_UP = "Chat with Second isn't working right now. We're on it. Pleas
 const MAX_PROPOSALS = 2;
 const PROPOSAL_NAMES = new Set(PROPOSAL_TOOLS.map((t) => t.name));
 
-// Time budget for one message (the route may run 60 seconds): the map search must finish by
-// 30 seconds in, website checks by 45, and the whole reply by about 50.
-const SEARCH_BY_MS = 30_000;
-const WEBSITES_BY_MS = 45_000;
-const REPLY_BY_MS = 50_000;
+// Time budget for one message, from the start of the request (the route may run 60 seconds):
+// the map search must finish by 25 seconds in, website checks by 40, and the reply by about 45.
+// Each AI step also has its own timeout, so one slow call can't eat the rest.
+const SEARCH_BY_MS = 25_000;
+const WEBSITES_BY_MS = 40_000;
+const REPLY_BY_MS = 45_000;
+const STEP_TIMEOUT_MS = 20_000;
 
 function historyHours(): number {
   const n = Number.parseFloat(process.env.CHAT_HISTORY_HOURS ?? "");
@@ -287,13 +289,16 @@ export async function POST(request: Request) {
 
   // "Could you find me a business to partner with?": search first (thinking models can't be forced).
   const mustSearch = searchAllowed && !thinks && wantsSearch(message);
-  const stream = anthropic.beta.messages.stream({
-    ...base,
-    max_tokens: thinks ? 1500 : 600,
-    ...(tools.length ? { tools } : {}),
-    ...(mustSearch ? { tool_choice: { type: "tool" as const, name: FIND_TOOL.name } } : {}),
-    messages,
-  });
+  const stream = anthropic.beta.messages.stream(
+    {
+      ...base,
+      max_tokens: thinks ? 1500 : 600,
+      ...(tools.length ? { tools } : {}),
+      ...(mustSearch ? { tool_choice: { type: "tool" as const, name: FIND_TOOL.name } } : {}),
+      messages,
+    },
+    { timeout: thinks ? 45_000 : 25_000 },
+  );
 
   const userAt = now.toISOString();
   const encoder = new TextEncoder();
@@ -318,6 +323,10 @@ export async function POST(request: Request) {
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") say(event.delta.text);
         }
         let final: Anthropic.Beta.BetaMessage = await stream.finalMessage();
+        // Step times, logged only when a message runs long (no content, just step names and seconds).
+        const steps: string[] = [];
+        const mark = (step: string) => steps.push(`${step} ${((Date.now() - started) / 1000).toFixed(1)}s`);
+        mark("first reply");
         count(final);
         const allBlocks: Anthropic.Beta.BetaContentBlock[] = [...final.content];
 
@@ -346,6 +355,7 @@ export async function POST(request: Request) {
                 send({ type: "status", text: `Looking at the map for ${categoryLabel(args.category).toLowerCase()} ${where}…` });
                 searched = [];
                 const r = await runSearch(db, user.id, business, { town: args.town, state: args.state, category: args.category, hideChains: true, radiusMi: args.radiusMi }, { saved: false, deadline: started + SEARCH_BY_MS });
+                mark("map search");
                 if (!r.ok) {
                   searchNote = r.reason;
                   const why =
@@ -400,12 +410,14 @@ export async function POST(request: Request) {
             // ---------- Picks: structured, checked, one retry ----------
             const allowedNumbers = new Set(business.services.flatMap((sv) => [String(sv.price), ...(sv.minutes ? [String(sv.minutes)] : [])]));
             let reply = "";
-            for (let attempt = 0; attempt < 2 && timeLeft() > 6_000; attempt++) {
+            // The retry only runs if there is still clear time for it.
+            for (let attempt = 0; attempt < 2 && timeLeft() > (attempt ? 12_000 : 6_000); attempt++) {
               const res = await anthropic.beta.messages.create(
-                { ...base, max_tokens: 900, tools: [...tools, PICKS_TOOL], tool_choice: { type: "tool", name: PICKS_TOOL.name }, messages: followUp },
-                { timeout: Math.max(5_000, timeLeft()) },
+                { ...base, max_tokens: 1600, tools: [...tools, PICKS_TOOL], tool_choice: { type: "tool", name: PICKS_TOOL.name }, messages: followUp },
+                { timeout: Math.max(5_000, Math.min(STEP_TIMEOUT_MS, timeLeft())), maxRetries: 0 },
               );
               count(res);
+              mark("picks");
               final = res;
               allBlocks.push(...res.content);
               const call = res.content.find((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use" && b.name === PICKS_TOOL.name);
@@ -425,7 +437,7 @@ export async function POST(request: Request) {
             // ---------- Plain answer after the lookup (or a busy map) ----------
             const after = anthropic.beta.messages.stream(
               { ...base, max_tokens: thinks ? 1500 : 600, tools: searched ? [...tools, PICKS_TOOL] : tools, tool_choice: { type: "none" }, messages: followUp },
-              { timeout: Math.max(5_000, timeLeft()) },
+              { timeout: Math.max(5_000, Math.min(STEP_TIMEOUT_MS, timeLeft())), maxRetries: 0 },
             );
             let first = true;
             for await (const event of after) {
@@ -454,6 +466,7 @@ export async function POST(request: Request) {
           const picked = picks.map((pk) => ({ pick: pk, lead: (searched as Labeled[]).find((x) => x.label === pk.resultId)!.lead }));
           send({ type: "status", text: "Checking their websites for an email…" });
           const checkedLeads = await checkWebsites(db, picked.map((x) => x.lead), Math.min(started + WEBSITES_BY_MS, Date.now() + 10_000));
+          mark("websites");
           businessCards = picked.map(({ pick, lead }, n) => {
             const l = checkedLeads[n];
             return {
@@ -535,6 +548,8 @@ export async function POST(request: Request) {
           if (pickError) console.error("chat: couldn't save business cards", pickError.code);
           else send({ type: "business_cards", messageId: replyId, cards: businessCards });
         }
+        mark("saved");
+        if (Date.now() - started > 40_000) console.error("chat: slow message:", steps.join(", "));
         send({ type: "done", remaining: Math.max(0, limit - usedToday - 1) });
       } catch (error) {
         send({ type: "error", message: friendly(error, model) });
