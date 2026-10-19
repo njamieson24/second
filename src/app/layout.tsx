@@ -3,6 +3,7 @@ import { Outfit } from "next/font/google";
 import { bootScript } from "@/lib/boot";
 import { DataProvider } from "@/lib/data";
 import { ThemeProvider } from "@/lib/theme";
+import { TourProvider } from "@/components/Tour";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -34,7 +35,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body>
         <ThemeProvider>
-          <DataProvider>{children}</DataProvider>
+          <DataProvider>
+            <TourProvider>{children}</TourProvider>
+          </DataProvider>
         </ThemeProvider>
       </body>
     </html>

@@ -8,6 +8,7 @@ import { Chip } from "@/components/Chip";
 import { ComingSoon, EmptyState, SampleTag } from "@/components/EmptyStates";
 import { HeroCard } from "@/components/HeroCard";
 import { ThisWeek } from "@/components/ThisWeek";
+import { TourOffer } from "@/components/TourOffer";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ProgressBar } from "@/components/ProgressBar";
 import { RoadmapStepper } from "@/components/RoadmapStepper";
@@ -48,10 +49,13 @@ export default function LaunchHomePage() {
         }
       />
 
+      <TourOffer mode="launch" />
+
       <ThisWeek />
 
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <HeroCard
+          tourId="launch-plan"
           eyebrow="Your launch plan"
           meta={`Step ${roadmap.currentIndex + 1} of ${roadmap.stages.length}`}
           heading={

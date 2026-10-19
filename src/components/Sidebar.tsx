@@ -15,6 +15,7 @@ import {
   Star,
   Users,
   type LucideIcon,
+  Compass,
 } from "lucide-react";
 import { useLoadedData, useRoadmap } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
@@ -24,6 +25,7 @@ import { SampleTag } from "./EmptyStates";
 import { Logo } from "./Logo";
 import { ProgressBar } from "./ProgressBar";
 import { ThemeToggle } from "./ThemeToggle";
+import { useTour } from "./Tour";
 
 type NavItem = { label: string; href: string; icon: LucideIcon };
 
@@ -74,6 +76,7 @@ export function Sidebar({
   const isLaunch = mode === "launch";
   const { business, showSamples } = useLoadedData();
   const roadmap = useRoadmap();
+  const tour = useTour();
   const initial = business.ownerName.trim().charAt(0).toUpperCase() || "?";
 
   return (
@@ -140,6 +143,18 @@ export function Sidebar({
           </div>
         )
       )}
+
+      <button
+        type="button"
+        onClick={() => {
+          onNavigate?.(); // close the phone menu first
+          tour.start(mode);
+        }}
+        className="flex min-h-11 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-on-dark transition-colors hover:bg-ink-2 hover:text-on-panel"
+      >
+        <Compass size={20} strokeWidth={2} aria-hidden="true" />
+        Take a tour
+      </button>
 
       <ThemeToggle />
 

@@ -5,15 +5,18 @@ type CardProps = {
   padding?: "md" | "lg";
   className?: string;
   children?: React.ReactNode;
+  /** Marks this card for "Take a tour" (see src/lib/tour.ts) */
+  tourId?: string;
 };
 
 export function CardTitle({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <h2 className={`m-0 text-[17px] font-semibold ${className}`}>{children}</h2>;
 }
 
-export function Card({ title, aside, padding = "md", className = "", children }: CardProps) {
+export function Card({ title, aside, padding = "md", className = "", children, tourId }: CardProps) {
   return (
     <section
+      data-tour={tourId}
       className={`rounded-card border border-line bg-card ${padding === "md" ? "p-[22px]" : "px-6 py-[22px]"} ${className}`}
     >
       {(title || aside) && (

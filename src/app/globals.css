@@ -12,6 +12,8 @@
 
   /* Core palette (docs/DESIGN.md) */
   --color-ink: #151b26;
+  /* Dims the page behind "Take a tour" */
+  --color-scrim: rgb(21 27 38 / 0.55);
   --color-paper: #f7f8f5;
   --color-card: #ffffff;
   --color-line: #e3e6e0;
@@ -233,6 +235,7 @@
 html[data-theme="dark"] {
   color-scheme: dark;
   --color-ink: #eef0ec; /* primary text */
+  --color-scrim: rgb(0 0 0 / 0.68);
   --color-paper: #0f141c; /* page background */
   --color-card: #1a212c;
   --color-line: #2b3443;

@@ -42,7 +42,7 @@ export function WhatSecondKnows() {
   }
 
   return (
-    <Card title="What Second knows" aside={sample ? <SampleTag /> : undefined}>
+    <Card title="What Second knows" aside={sample ? <SampleTag /> : undefined} tourId="what-second-knows">
       <p className="mt-1.5 mb-4 text-[15px] leading-normal text-muted">
         Second saves short notes from your chats so it remembers what matters. You&apos;re in control.
       </p>

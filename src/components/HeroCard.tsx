@@ -7,15 +7,19 @@ export function HeroCard({
   heading,
   gap = "md",
   children,
+  tourId,
 }: {
   eyebrow: string;
   meta?: string;
   heading: string;
   gap?: "sm" | "md";
   children: React.ReactNode;
+  /** Marks this card for "Take a tour" (see src/lib/tour.ts) */
+  tourId?: string;
 }) {
   return (
     <section
+      data-tour={tourId}
       className={`on-dark flex flex-col rounded-card bg-panel p-5 ring-1 ring-ink-line text-on-panel desk:p-7 ${gap === "sm" ? "gap-3.5" : "gap-4"}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">

@@ -59,7 +59,7 @@ export default function MoneyPlanPage() {
           </div>
         </Card>
 
-        <Card title="Your price">
+        <Card title="Your price" tourId="money-plan">
           <div className="mt-3">
             <Field label={`Price for ${main?.name ?? "your main service"}`} labelHidden>
               {(id) => <MoneyInput id={id} value={price} onChange={saveMainPrice} size="lg" />}

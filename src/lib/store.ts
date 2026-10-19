@@ -156,6 +156,8 @@ export const STORAGE_KEYS = {
   demo: "second:v1:demo",
   /** Last known mode, so the right sidebar shows before data loads (see boot.ts) */
   modeHint: "second:v1:mode-hint",
+  /** The "Take a tour" welcome card was shown (on this device) */
+  tourOffered: "second:v1:tour-offered",
 } as const;
 
 function setKey(key: string, value: string | null) {
@@ -1198,6 +1200,18 @@ export async function graduate(): Promise<void> {
     await saveBusiness({ ...business, launchedAt: new Date().toISOString() });
   }
   await saveMode("running");
+}
+
+// ---------- "Take a tour" ----------
+
+/** Has the first-visit "Take a tour" card been shown on this device? (A screen setting, like the theme.) */
+export function wasTourOffered(): boolean {
+  return getKey(STORAGE_KEYS.tourOffered) === "1";
+}
+
+/** Don't show the first-visit card again (they started the tour or said "Maybe later"). */
+export function markTourOffered(): void {
+  setKey(STORAGE_KEYS.tourOffered, "1");
 }
 
 // ---------- Reset ----------

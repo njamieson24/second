@@ -248,6 +248,7 @@ function LiveChat() {
           </div>
         )}
         <form
+          data-tour="chat-box"
           onSubmit={(e) => {
             e.preventDefault();
             send(draft);

@@ -38,6 +38,7 @@ export function IdeaList({
 }) {
   return (
     <section
+      data-tour="content-ideas"
       aria-labelledby="ideas-title"
       aria-busy={loading || renewing}
       className="on-dark flex flex-col gap-4 rounded-card bg-panel p-4 text-on-panel ring-1 ring-ink-line desk:p-7"

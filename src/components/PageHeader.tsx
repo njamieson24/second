@@ -22,7 +22,7 @@ export function PageHeader({
         ? "text-[32px] tracking-[-0.8px]"
         : "text-[30px] tracking-[-0.7px]";
   return (
-    <div className={`flex flex-wrap gap-4 ${align === "end" ? "items-end" : "items-center"}`}>
+    <div data-tour-header className={`flex flex-wrap gap-4 ${align === "end" ? "items-end" : "items-center"}`}>
       <div className="min-w-0 flex-1 basis-72">
         {eyebrow && <p className="m-0 text-sm text-muted">{eyebrow}</p>}
         <h1

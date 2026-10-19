@@ -11,6 +11,7 @@ import { StatTile } from "@/components/StatTile";
 import { TextLink } from "@/components/TextLink";
 import { ThisWeek } from "@/components/ThisWeek";
 import { TipCard } from "@/components/TipCard";
+import { TourOffer } from "@/components/TourOffer";
 import { useLoadedData } from "@/lib/data";
 import { currentMonthKey, greeting, longDate, monthName, shiftMonth, todayISO, toISODate } from "@/lib/dates";
 import { ideas, newReplies } from "@/lib/demo-content";
@@ -50,6 +51,8 @@ export default function DashboardPage() {
           </Button>
         }
       />
+
+      <TourOffer mode="running" />
 
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <ThisWeek />

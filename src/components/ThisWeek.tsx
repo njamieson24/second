@@ -55,6 +55,7 @@ export function ThisWeek() {
 
   return (
     <section
+      data-tour="this-week"
       aria-labelledby="this-week-title"
       aria-busy={loading || redoing}
       className="on-dark flex flex-col gap-4 rounded-card bg-panel p-5 text-on-panel ring-1 ring-ink-line desk:p-7"
