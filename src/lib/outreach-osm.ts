@@ -80,6 +80,10 @@ const NOMINATIM_TAGS: Record<CategoryId, [string, string][]> = {
   spa: [["shop", "massage"]],
   florists: [["shop", "florist"]],
   retail: [["shop", "clothes"], ["shop", "gift"]],
+  fun: [["leisure", "miniature_golf"], ["leisure", "amusement_arcade"], ["leisure", "bowling_alley"], ["leisure", "escape_game"], ["leisure", "trampoline_park"]],
+  breweries: [["craft", "brewery"], ["craft", "winery"], ["craft", "distillery"]],
+  hotels: [["tourism", "hotel"], ["tourism", "guest_house"], ["tourism", "motel"]],
+  venues: [["amenity", "events_venue"], ["amenity", "theatre"]],
 };
 
 type NominatimPlace = {
@@ -117,7 +121,9 @@ export async function nominatimPlaces(
   deadline = Infinity,
 ): Promise<{ elements: OsmElement[]; complete: boolean } | null> {
   let complete = true;
-  const rings = [...[2, 5, 10, 15].filter((r) => r < radiusMi), radiusMi];
+  // Kinds with many map tags (mini golf, arcades, bowling...) are rare: one box is enough, so the
+  // request budget isn't spent on rings.
+  const rings = NOMINATIM_TAGS[category].length > 2 ? [radiusMi] : [...[2, 5, 10, 15].filter((r) => r < radiusMi), radiusMi];
   const seen = new Map<string, number[]>(); // per map tag: place ids already returned
   const out = new Map<string, OsmElement>();
   let requests = 0;

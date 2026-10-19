@@ -30,7 +30,21 @@ export function milesBetween(a: { lat: number; lon: number }, b: { lat: number; 
 
 export const OPT_OUT_LINE = "If you'd rather not hear from me, just let me know.";
 
-export type CategoryId = "cafes" | "restaurants" | "bars" | "bakeries" | "ice_cream" | "salons" | "gyms" | "spa" | "florists" | "retail";
+export type CategoryId =
+  | "cafes"
+  | "restaurants"
+  | "bars"
+  | "bakeries"
+  | "ice_cream"
+  | "salons"
+  | "gyms"
+  | "spa"
+  | "florists"
+  | "retail"
+  | "fun"
+  | "breweries"
+  | "hotels"
+  | "venues";
 
 /** Category chips and the OpenStreetMap tags each one searches for. */
 export const CATEGORIES: { id: CategoryId; label: string; tags: [string, string][] }[] = [
@@ -47,6 +61,10 @@ export const CATEGORIES: { id: CategoryId; label: string; tags: [string, string]
   { id: "florists", label: "Florists", tags: [["shop", "florist"]] },
   // "Any other shop": every shop=* except the shop types the chips above already cover.
   { id: "retail", label: "Retail", tags: [["shop", "*"]] },
+  { id: "fun", label: "Mini golf & fun", tags: [["leisure", "miniature_golf"], ["leisure", "amusement_arcade"], ["leisure", "bowling_alley"], ["leisure", "escape_game"], ["leisure", "trampoline_park"]] },
+  { id: "breweries", label: "Breweries & wineries", tags: [["craft", "brewery"], ["craft", "winery"], ["craft", "distillery"]] },
+  { id: "hotels", label: "Hotels & inns", tags: [["tourism", "hotel"], ["tourism", "guest_house"], ["tourism", "motel"]] },
+  { id: "venues", label: "Event venues & theaters", tags: [["amenity", "events_venue"], ["amenity", "theatre"]] },
 ];
 /** Searches made before a category's map tags last changed aren't reused (their results were wrong). */
 export const CATEGORY_CHANGED: Partial<Record<CategoryId, string>> = {

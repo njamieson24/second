@@ -92,7 +92,7 @@ export async function usageOf(db: SupabaseClient, userId: string): Promise<Outre
 export type SearchInput = { town: string; state: string; category: CategoryId; hideChains: boolean; radiusMi: RadiusMi; fresh?: boolean };
 export type SearchOutcome =
   | { ok: true; leads: Lead[]; reused: boolean; town: string }
-  | { ok: false; reason: "town" | "limit" | "busy" | "setup"; message: string; status: number };
+  | { ok: false; reason: "town" | "limit" | "busy" | "slow" | "setup"; message: string; status: number };
 
 /**
  * Businesses of one kind within `radiusMi` miles of a town, closest first (at most 150).
@@ -193,6 +193,9 @@ export async function runSearch(
   const usage = await usageOf(db, userId);
   if (usage.searchesLeft <= 0)
     return { ok: false, reason: "limit", message: `You've done today's ${OUTREACH_LIMITS.searchesPerDay} map searches. You can search again tomorrow.`, status: 429 };
+
+  // Out of time before the map was even asked (e.g. a slow chat reply): say so, don't blame the map.
+  if (Date.now() > deadline - 4_000) return { ok: false, reason: "slow", message: "That took longer than usual. Please try again.", status: 503 };
 
   // Nominatim first (fast); Overpass if Nominatim is down or found nothing.
   const claimSlot = async () => {

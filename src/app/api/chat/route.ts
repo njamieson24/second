@@ -39,6 +39,7 @@ import {
   wantsSearch,
   CHAT_OUTREACH_RULES,
   CHAT_RESULTS_SHOWN,
+  partnerHint,
   checkFindArgs,
   checkPicks,
   clean,
@@ -277,7 +278,10 @@ export async function POST(request: Request) {
   const rules = [SECOND_PERSONA, memoryReady ? TOOL_RULES : "", outreachReady ? CHAT_OUTREACH_RULES : ""].filter(Boolean).join("\n\n");
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     { type: "text", text: rules },
-    { type: "text", text: [context, notesContext(notes), proposalsContext(recentCards), recentCardsBlock(recent)].filter(Boolean).join("\n\n") },
+    {
+      type: "text",
+      text: [context, notesContext(notes), proposalsContext(recentCards), outreachReady ? partnerHint(business) : "", recentCardsBlock(recent)].filter(Boolean).join("\n\n"),
+    },
   ];
   const timeLeft = () => started + REPLY_BY_MS - Date.now();
   const base = {
@@ -297,7 +301,7 @@ export async function POST(request: Request) {
       ...(mustSearch ? { tool_choice: { type: "tool" as const, name: FIND_TOOL.name } } : {}),
       messages,
     },
-    { timeout: thinks ? 45_000 : 25_000 },
+    { timeout: thinks ? 40_000 : 20_000, maxRetries: 1 },
   );
 
   const userAt = now.toISOString();
@@ -354,12 +358,14 @@ export async function POST(request: Request) {
                 const where = `within ${args.radiusMi} miles of ${args.town}${args.state ? `, ${args.state}` : ""}`;
                 send({ type: "status", text: `Looking at the map for ${categoryLabel(args.category).toLowerCase()} ${where}…` });
                 searched = [];
-                const r = await runSearch(db, user.id, business, { town: args.town, state: args.state, category: args.category, hideChains: true, radiusMi: args.radiusMi }, { saved: false, deadline: started + SEARCH_BY_MS });
+                const r = await runSearch(db, user.id, business, { town: args.town, state: args.state, category: args.category, hideChains: true, radiusMi: args.radiusMi }, { saved: false, deadline: Math.min(started + 35_000, Math.max(started + SEARCH_BY_MS, Date.now() + 15_000)) });
                 mark("map search");
                 if (!r.ok) {
                   searchNote = r.reason;
                   const why =
-                    r.reason === "busy"
+                    r.reason === "slow"
+                      ? "This message took longer than usual, so there was no time to search."
+                      : r.reason === "busy"
                       ? "The map is busy right now, so there are no results."
                       : r.reason === "town"
                         ? `Couldn't find the town "${clean(args.town, 60)}". Ask them to check the town and state.`
@@ -453,8 +459,8 @@ export async function POST(request: Request) {
           if (!text.trim()) {
             say(
               searchNote === "busy"
-                ? "The map is busy right now, so I couldn't look. Please try again in a minute, or use the Outreach page."
-                : "I couldn't finish looking that up. Please try again in a minute.",
+                ? "The map is busy right now, so I couldn't look. Please try again in a minute."
+                : "That took longer than usual, so I couldn't finish looking. Please ask me again.",
             );
           }
         }
