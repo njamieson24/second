@@ -12,6 +12,7 @@ import { getStages } from "./roadmap";
 import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 import type { BusinessNote } from "./chat";
 import type { PlanAction, WeekPlan } from "./week";
+import { servicesFromCatalog, type CatalogItem } from "./catalog";
 import type { ContentPost, ContentWeek } from "./content";
 import { OPT_OUT_LINE, type Lead } from "./outreach";
 import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
@@ -25,9 +26,29 @@ export type DemoAccount = {
   moneyPlan: MoneyPlan;
   transactions: Transaction[];
   events: CalendarEvent[];
+  /** What the business sells (made-up prices) */
+  catalog: CatalogItem[];
 };
 
 const id = () => crypto.randomUUID();
+
+/** Maria's catalog: made-up services and prices, some with 60 and 90 minute options. */
+function demoCatalog(): CatalogItem[] {
+  const item = (name: string, position: number, options: [number, number][]): CatalogItem => ({
+    id: id(),
+    name,
+    kind: "service",
+    active: true,
+    position,
+    variants: options.map(([minutes, price], n) => ({ id: id(), label: options.length > 1 ? `${minutes} min` : "", minutes, price, isDefault: n === 0, active: true, position: n })),
+  });
+  return [
+    item("Swedish massage", 0, [[60, 95], [90, 135]]),
+    item("Deep tissue", 1, [[60, 110], [90, 150]]),
+    item("Prenatal massage", 2, [[60, 100]]),
+    item("Sports massage", 3, [[60, 110]]),
+  ];
+}
 const iso = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -146,6 +167,7 @@ export function buildDemoAccount(today: Date = new Date(), timeZone?: string): D
   });
 
   const opened = monthStart(5);
+  const catalog = demoCatalog();
   return {
     business: {
       ownerName: "Maria",
@@ -153,12 +175,8 @@ export function buildDemoAccount(today: Date = new Date(), timeZone?: string): D
       type: "massage",
       typeLabel: info.label,
       area: "Asbury Park, NJ",
-      services: [
-        { id: id(), name: "Swedish massage", price: 95, minutes: 60 },
-        { id: id(), name: "Deep tissue", price: 110, minutes: 60 },
-        { id: id(), name: "Prenatal massage", price: 100, minutes: 60 },
-        { id: id(), name: "Sports massage", price: 110, minutes: 60 },
-      ],
+      // Made from the catalog below (the one place prices live).
+      services: servicesFromCatalog(catalog),
       payGoal: 3000,
       goalNote: "10 new clients by December",
       openingDay: iso(opened),
@@ -174,6 +192,7 @@ export function buildDemoAccount(today: Date = new Date(), timeZone?: string): D
     },
     transactions,
     events: demoEvents(today, zone),
+    catalog,
   };
 }
 

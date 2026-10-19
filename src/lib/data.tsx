@@ -8,10 +8,12 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { getBusinessType, type BusinessTypeInfo } from "./business-types";
+import type { CatalogItem } from "./catalog";
 import { roadmapProgress, type RoadmapProgress } from "./roadmap";
 import {
   getAccount,
   getBusiness,
+  getCatalog,
   getEvents,
   getMode,
   getMoneyPlan,
@@ -39,6 +41,8 @@ export type AppData = {
   moneyPlan: MoneyPlan | null;
   transactions: Transaction[];
   events: CalendarEvent[];
+  /** What the business sells, including hidden items (see src/lib/catalog.ts) */
+  catalog: CatalogItem[];
 };
 
 type DataState = { data: AppData | null; loadFailed: boolean };
@@ -57,9 +61,10 @@ async function loadAll(): Promise<AppData> {
       moneyPlan: null,
       transactions: [],
       events: [],
+      catalog: [],
     };
   }
-  const [business, mode, showSamples, completedTasks, moneyPlan, transactions, events] = await Promise.all([
+  const [business, mode, showSamples, completedTasks, moneyPlan, transactions, events, catalog] = await Promise.all([
     getBusiness(),
     getMode(),
     getShowSamples(),
@@ -67,8 +72,9 @@ async function loadAll(): Promise<AppData> {
     getMoneyPlan(),
     getTransactions(),
     getEvents(),
+    getCatalog(),
   ]);
-  return { account, business, mode, showSamples, completedTasks, moneyPlan, transactions, events };
+  return { account, business, mode, showSamples, completedTasks, moneyPlan, transactions, events, catalog };
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {

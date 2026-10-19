@@ -23,6 +23,18 @@ import type { ContentPost, ContentResponse, ContentWeek, PostStatus } from "./co
 import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
 import { OUTREACH_LIMITS, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "./outreach";
 import { buildDemoAccount } from "./demo-content";
+import {
+  activeItems,
+  activeVariants,
+  CATALOG_LIMITS,
+  entryTotal,
+  findVariant,
+  itemProblems,
+  newItem,
+  servicesFromCatalog,
+  validPrice,
+  type CatalogItem,
+} from "./catalog";
 import { localBackend } from "./store-local";
 import { createSupabaseBackend } from "./store-supabase";
 import { supabase, supabaseConfigured } from "./supabase";
@@ -82,6 +94,19 @@ export type Transaction = {
   category: string;
   /** Income only, optional: who paid. Used to spot clients who haven't come back. */
   clientName?: string;
+  // From the catalog (all optional; entries typed by hand have none of these).
+  // `amount` and `label` are a snapshot: changing the catalog never changes past entries.
+  itemId?: string;
+  variantId?: string;
+  quantity?: number;
+  /** The price used for this entry (editable when logging) */
+  unitPrice?: number;
+  discount?: number;
+  /** Tips are income but not part of the price (kept out of best sellers and price math) */
+  tip?: number;
+  /** "Got paid" on a calendar appointment, and which day (weekly repeats) */
+  eventId?: string;
+  eventDate?: string;
 };
 
 // ---------- Calendar ----------
@@ -139,6 +164,10 @@ export type Backend = {
   getMoneyPlan(): Promise<MoneyPlan | null>;
   saveMoneyPlan(plan: MoneyPlan): Promise<void>;
   getTransactions(): Promise<Transaction[]>;
+  /** Everything the business sells, including hidden items (past entries still name them) */
+  getCatalog(): Promise<CatalogItem[]>;
+  /** Add or change one item and its variants (variants are never deleted, only hidden). */
+  saveCatalogItem(item: CatalogItem): Promise<void>;
   addTransaction(transaction: Transaction): Promise<void>;
   deleteTransaction(id: string): Promise<void>;
   getEvents(): Promise<CalendarEvent[]>;
@@ -367,7 +396,11 @@ export async function leaveDemo(): Promise<void> {
 // ---------- Business profile ----------
 
 export async function getBusiness(): Promise<Business | null> {
-  return (await backend())?.getBusiness() ?? null;
+  const b = await backend();
+  if (!b) return null;
+  const [business, catalog] = await Promise.all([b.getBusiness(), b.getCatalog()]);
+  // `services` always comes from the catalog (the one source of truth), never businesses.services.
+  return business ? { ...business, services: servicesFromCatalog(catalog) } : business;
 }
 
 export async function saveBusiness(business: Business): Promise<void> {
@@ -376,10 +409,45 @@ export async function saveBusiness(business: Business): Promise<void> {
 
 /** Change the main service's price (shared by the profile and the money plan). */
 export async function saveMainPrice(price: number): Promise<void> {
-  const business = await getBusiness();
-  if (!business || business.services.length === 0) return;
-  const [main, ...rest] = business.services;
-  await saveBusiness({ ...business, services: [{ ...main, price }, ...rest] });
+  if (!validPrice(price)) return;
+  const first = activeItems(await getCatalog())[0];
+  if (!first) return;
+  const vs = activeVariants(first);
+  const main = vs.find((v) => v.isDefault) ?? vs[0];
+  await saveCatalogItem({ ...first, variants: first.variants.map((v) => (v.id === main.id ? { ...v, price } : v)) });
+}
+
+// ---------- Catalog (what the business sells) ----------
+
+/** Everything they sell, including hidden items. Use activeItems() for what's on sale now. */
+export async function getCatalog(): Promise<CatalogItem[]> {
+  return (await backend())?.getCatalog() ?? [];
+}
+
+/** Add or change an item. Checked here and again by the database (prices $0 to $10,000). */
+export async function saveCatalogItem(item: CatalogItem): Promise<{ ok: true } | { ok: false; message: string }> {
+  const problems = itemProblems(item);
+  if (problems.length) return { ok: false, message: problems[0] };
+  const all = await getCatalog();
+  if (!all.some((i) => i.id === item.id) && activeItems(all).length >= CATALOG_LIMITS.maxItems)
+    return { ok: false, message: `You can list up to ${CATALOG_LIMITS.maxItems} things.` };
+  await change((b) => b.saveCatalogItem({ ...item, name: item.name.trim() }));
+  return { ok: true };
+}
+
+/** "Delete": hides it. Past money entries still show what they were. */
+export async function hideCatalogItem(id: string): Promise<void> {
+  const item = (await getCatalog()).find((i) => i.id === id);
+  if (item) await change((b) => b.saveCatalogItem({ ...item, active: false }));
+}
+
+/** Onboarding: turn the chosen services into catalog items, only if the catalog is empty. */
+export async function ensureCatalog(services: Service[], type: BusinessType): Promise<void> {
+  if ((await getCatalog()).length) return;
+  for (const [n, s] of services.entries()) {
+    if (!s.name.trim() || !validPrice(s.price)) continue;
+    await change((b) => b.saveCatalogItem(newItem({ name: s.name, price: s.price, minutes: s.minutes ?? null, type, position: n })));
+  }
 }
 
 export async function savePayGoal(payGoal: number): Promise<void> {
@@ -590,22 +658,28 @@ const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLow
 async function applyChange(change: ProposalChange): Promise<boolean> {
   const business = await getBusiness();
   if (!business) return false;
-  const services = business.services;
+  const catalog = await getCatalog();
+  // Price changes go to the catalog, the one source of truth (never businesses.services).
   switch (change.kind) {
     case "set_price": {
-      if (!services.some((s) => same(s.name, change.service))) return false;
-      await saveBusiness({ ...business, services: services.map((s) => (same(s.name, change.service) ? { ...s, price: change.newPrice } : s)) });
-      return true;
+      const found = findVariant(catalog, change.service);
+      if (!found || !validPrice(change.newPrice)) return false;
+      const { item, variant } = found;
+      return (await saveCatalogItem({ ...item, variants: item.variants.map((v) => (v.id === variant.id ? { ...v, price: change.newPrice } : v)) })).ok;
     }
     case "add_service": {
-      if (services.some((s) => same(s.name, change.name))) return false;
-      const added: Service = { id: newId(), name: change.name, price: change.price, ...(change.minutes ? { minutes: change.minutes } : {}) };
-      await saveBusiness({ ...business, services: [...services, added] });
-      return true;
+      if (findVariant(catalog, change.name) || activeItems(catalog).some((i) => same(i.name, change.name))) return false;
+      const position = catalog.reduce((max, i) => Math.max(max, i.position + 1), 0);
+      return (await saveCatalogItem(newItem({ name: change.name, price: change.price, minutes: change.minutes, type: business.type, position }))).ok;
     }
     case "remove_service": {
-      if (services.length < 2 || !services.some((s) => same(s.name, change.service))) return false;
-      await saveBusiness({ ...business, services: services.filter((s) => !same(s.name, change.service)) });
+      const found = findVariant(catalog, change.service);
+      if (!found || business.services.length < 2) return false;
+      const { item, variant } = found;
+      // One option of several: hide that option. Otherwise hide the whole item.
+      if (activeVariants(item).length > 1)
+        return (await saveCatalogItem({ ...item, variants: item.variants.map((v) => (v.id === variant.id ? { ...v, active: false } : v)) })).ok;
+      await hideCatalogItem(item.id);
       return true;
     }
     case "set_pay_goal":
@@ -1135,7 +1209,10 @@ export async function getTransactions(): Promise<Transaction[]> {
 }
 
 export async function addTransaction(transaction: Omit<Transaction, "id">): Promise<Transaction> {
-  const saved = { ...transaction, id: newId() };
+  // From the parts (price x quantity - discount + tip). The database works out the same total
+  // itself and never trusts this one; this is just so the screen is right straight away.
+  const amount = transaction.unitPrice !== undefined ? entryTotal({ unitPrice: transaction.unitPrice, quantity: transaction.quantity, discount: transaction.discount, tip: transaction.tip }) : transaction.amount;
+  const saved = { ...transaction, amount, id: newId() };
   await change((b) => b.addTransaction(saved));
   return saved;
 }

@@ -12,6 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { toBusiness, toEvent, toTransaction, type BusinessRow, type EventRow, type TransactionRow } from "@/lib/db-rows";
+import { withCatalog } from "@/lib/catalog-server";
 import { formatMoney, knownClientNames } from "@/lib/money";
 import { CATEGORIES, categoryLabel, DEFAULT_RADIUS, isEmailAddress, OUTREACH_LIMITS, RADIUS_OPTIONS, type RadiusMi, type CategoryId, type LeadStatus, type OutreachResponse } from "@/lib/outreach";
 import { DRAFT_MODEL, DRAFT_SYSTEM, DRAFT_TOOL, draftProblems, draftPrompt, OUTREACH_DRAFT_MAX_TOKENS, MAX_WORDS, wordCount, withOptOut } from "@/lib/outreach-draft";
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const bizRes = await db.from("businesses").select("*").eq("user_id", user.id).maybeSingle();
-  const business = toBusiness(bizRes.data as BusinessRow | null);
+  const business = await withCatalog(db, user.id, toBusiness(bizRes.data as BusinessRow | null));
   if (!business) return fail("Please finish setting up your business first.", 400);
 
   try {

@@ -27,6 +27,7 @@ import { addDays, todayISO } from "@/lib/dates";
 import { onboardingTaskIds } from "@/lib/roadmap";
 import {
   completeTask,
+  ensureCatalog,
   newId,
   saveBusiness,
   saveMode,
@@ -60,6 +61,8 @@ type Draft = {
 };
 
 const STEPS = ["name", "type", "area", "services", "prices", "goal"] as const;
+/** Changing answers later: services and prices live in the catalog (Settings), not here. */
+const STEPS_WITH_CATALOG = ["name", "type", "area", "goal"] as const;
 
 export default function SetupPage() {
   return (
@@ -86,7 +89,7 @@ function Setup() {
       </div>
     );
   }
-  return <SetupForm mode={data.mode} existing={data.business} hasPlan={data.moneyPlan !== null} />;
+  return <SetupForm mode={data.mode} existing={data.business} hasPlan={data.moneyPlan !== null} hasCatalog={data.catalog.length > 0} />;
 }
 
 function draftFrom(existing: Business | null): Draft {
@@ -103,7 +106,8 @@ function draftFrom(existing: Business | null): Draft {
   };
 }
 
-function SetupForm({ mode, existing, hasPlan }: { mode: Mode; existing: Business | null; hasPlan: boolean }) {
+function SetupForm({ mode, existing, hasPlan, hasCatalog }: { mode: Mode; existing: Business | null; hasPlan: boolean; hasCatalog: boolean }) {
+  const steps: readonly (typeof STEPS)[number][] = hasCatalog ? STEPS_WITH_CATALOG : STEPS;
   const router = useRouter();
   const [draft, setDraft] = useState<Draft>(() => draftFrom(existing));
   const [step, setStep] = useState(0);
@@ -125,8 +129,8 @@ function SetupForm({ mode, existing, hasPlan }: { mode: Mode; existing: Business
   }, [step, interlude]);
 
   const update = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }));
-  const stepId = STEPS[step];
-  const isLast = step === STEPS.length - 1;
+  const stepId = steps[step];
+  const isLast = step === steps.length - 1;
 
   const canContinue = (() => {
     switch (stepId) {
@@ -174,6 +178,8 @@ function SetupForm({ mode, existing, hasPlan }: { mode: Mode; existing: Business
       launchedAt: existing?.launchedAt,
     };
     await saveBusiness(business);
+    // New accounts: the chosen services become the catalog (the one place prices live).
+    await ensureCatalog(business.services, business.type);
 
     if (!hasPlan) {
       // Starts empty: the money plan offers "Fill in common costs" for this business type.
@@ -217,11 +223,11 @@ function SetupForm({ mode, existing, hasPlan }: { mode: Mode; existing: Business
       <div className="mt-8 w-full max-w-[640px]">
         <div className="mb-2 flex justify-between text-sm text-muted">
           <span>
-            Step {step + 1} of {STEPS.length}
+            Step {step + 1} of {steps.length}
           </span>
           <span>{mode === "launch" ? "Setting up your launch plan" : "Setting up your business"}</span>
         </div>
-        <ProgressBar percent={((step + 1) / STEPS.length) * 100} label="Setup progress" />
+        <ProgressBar percent={((step + 1) / steps.length) * 100} label="Setup progress" />
 
         {interlude ? (
           <Interlude

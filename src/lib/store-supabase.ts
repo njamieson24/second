@@ -7,6 +7,11 @@
 
 import {
   businessProfileRow,
+  catalogItemRow,
+  catalogVariantRows,
+  toCatalog,
+  type CatalogItemRow,
+  type CatalogVariantRow,
   DATA_TABLES,
   MEMORY_TABLES,
   eventRow,
@@ -22,6 +27,7 @@ import {
   type TransactionRow,
 } from "./db-rows";
 import { supabase } from "./supabase";
+import type { CatalogItem } from "./catalog";
 import type { Backend, Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 
 function check<T extends { error: unknown }>(result: T): T {
@@ -37,6 +43,7 @@ type Cache = {
   plan: MoneyPlan | null;
   transactions: Transaction[];
   events: CalendarEvent[];
+  catalog: CatalogItem[];
 };
 
 export function createSupabaseBackend(userId: string, reportError: (error: unknown) => void): Backend & {
@@ -115,7 +122,9 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
     if (cache) return cache;
     if (!loading) {
       loading = (async () => {
-        const [business, tasks, plan, transactions, events] = await Promise.all([
+        // The catalog is optional too: before catalog.sql runs, it's just empty.
+        const optional = (r: { error: unknown; data: unknown }) => ({ ...r, error: null, data: r.error ? [] : r.data });
+        const [business, tasks, plan, transactions, events, items, variants] = await Promise.all([
           db.from("businesses").select("*").eq("user_id", userId).maybeSingle(),
           db.from("roadmap_tasks").select("task_id").eq("user_id", userId),
           db.from("money_plans").select("*").eq("user_id", userId).maybeSingle(),
@@ -125,6 +134,8 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
             if (r.error) console.warn("Calendar not available yet:", r.error.message);
             return { ...r, error: null, data: r.error ? [] : r.data };
           }),
+          db.from("catalog_items").select("*").eq("user_id", userId).then(optional),
+          db.from("catalog_variants").select("*").eq("user_id", userId).then(optional),
         ]).then((results) => results.map(check));
         const row = business.data as BusinessRow | null;
         cache = {
@@ -135,6 +146,7 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
           plan: toMoneyPlan(plan.data as MoneyPlanRow | null),
           transactions: ((transactions.data ?? []) as TransactionRow[]).map(toTransaction),
           events: ((events.data ?? []) as EventRow[]).map(toEvent),
+          catalog: toCatalog((items.data ?? []) as CatalogItemRow[], (variants.data ?? []) as CatalogVariantRow[]),
         };
         return cache;
       })().catch((error) => {
@@ -226,6 +238,18 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
       enqueue(() => db.from("transactions").delete().eq("user_id", userId).eq("id", id).then(check));
     },
 
+    async getCatalog() {
+      return (await load()).catalog.map((i) => ({ ...i, variants: [...i.variants] }));
+    },
+    async saveCatalogItem(item) {
+      const c = await load();
+      c.catalog = c.catalog.some((i) => i.id === item.id) ? c.catalog.map((i) => (i.id === item.id ? item : i)) : [...c.catalog, item];
+      enqueue(async () => {
+        await db.from("catalog_items").upsert(catalogItemRow(userId, item)).then(check);
+        await db.from("catalog_variants").upsert(catalogVariantRows(userId, item)).then(check);
+      });
+    },
+
     async getEvents() {
       return [...(await load()).events];
     },
@@ -247,10 +271,14 @@ export function createSupabaseBackend(userId: string, reportError: (error: unkno
 
     async resetAll() {
       await settle();
-      await Promise.all(
-        [...DATA_TABLES, ...MEMORY_TABLES].map((table) => db.from(table).delete().eq("user_id", userId).then(check)),
-      );
-      cache = { business: null, mode: null, showSamples: false, tasks: [], plan: null, transactions: [], events: [] };
+      await Promise.all(MEMORY_TABLES.map((table) => db.from(table).delete().eq("user_id", userId).then(check)));
+      for (const table of DATA_TABLES) {
+        const r = await db.from(table).delete().eq("user_id", userId);
+        // The catalog tables may not exist yet (before catalog.sql): that's fine.
+        if (r.error && !(table.startsWith("catalog_") && r.error.code === "42P01")) throw r.error;
+      }
+      // One table at a time, in order: money entries point at the catalog and the calendar.
+      cache = { business: null, mode: null, showSamples: false, tasks: [], plan: null, transactions: [], events: [], catalog: [] };
     },
   };
 }

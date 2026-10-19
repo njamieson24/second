@@ -4,12 +4,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { AddMoneyDialog } from "@/components/AddMoneyDialog";
 import { Button } from "@/components/Button";
 import { DayList, MonthView, WeekView } from "@/components/calendar/CalendarViews";
 import { EventDialog, type EventTarget } from "@/components/calendar/EventDialog";
+import type { PaidFrom } from "@/components/money/QuickIncome";
 import { eventStyles } from "@/components/calendar/eventStyles";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { EVENT_TYPES, monthGrid, occurrencesBetween, roadmapDates, startOfDay, weekDays, type Occurrence } from "@/lib/calendar";
+import { capital, familyOf } from "@/lib/business-kinds";
 import { useLoadedData, useRoadmap } from "@/lib/data";
 import { addDays, parseISODate, todayISO } from "@/lib/dates";
 
@@ -44,6 +47,7 @@ function Calendar() {
   const view: View = params.get("view") === "month" ? "month" : "week";
   const [anchor, setAnchor] = useState(() => startOfDay(params.get("date") ?? todayISO()));
   // /calendar?add=today opens the form for today (from the dashboard).
+  const [paid, setPaid] = useState<PaidFrom | null>(null);
   const [target, setTarget] = useState<EventTarget | null>(() =>
     params.get("add") === "today" ? { mode: "new", day: todayISO(), time: "09:00" } : null,
   );
@@ -152,7 +156,15 @@ function Calendar() {
         <DayList days={monthDays} occurrences={occurrences} onAdd={add} onOpen={open} skipEmpty={view === "month"} />
       </div>
 
-      <EventDialog target={target} onClose={() => setTarget(null)} />
+      <EventDialog
+        target={target}
+        onClose={() => setTarget(null)}
+        onGotPaid={(p) => {
+          setTarget(null);
+          setPaid(p);
+        }}
+      />
+      <AddMoneyDialog kind={paid ? "income" : null} incomeCategory={capital(familyOf(business.type).words.visit)} paid={paid ?? undefined} onClose={() => setPaid(null)} />
     </PageBody>
   );
 }

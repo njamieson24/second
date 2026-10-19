@@ -16,6 +16,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { toBusiness, toEvent, toTransaction, type BusinessRow, type EventRow, type TransactionRow } from "@/lib/db-rows";
+import { withCatalog } from "@/lib/catalog-server";
 import { formatMoney, knownClientNames } from "@/lib/money";
 import type { Business, Mode } from "@/lib/store";
 import { dateKeyIn } from "@/lib/timezone";
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
   const weekStart = mondayOf(dateKeyIn(now, timeZone));
 
   const bizRes = await db.from("businesses").select("*").eq("user_id", user.id).maybeSingle();
-  const business = toBusiness(bizRes.data as BusinessRow | null);
+  const business = await withCatalog(db, user.id, toBusiness(bizRes.data as BusinessRow | null));
   if (!business) return send({ status: "error", message: "Please finish setting up your business first." }, 400);
   const mode: Mode = (bizRes.data as { mode?: Mode }).mode === "launch" ? "launch" : "running";
 

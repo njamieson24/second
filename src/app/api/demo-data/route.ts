@@ -11,7 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { buildDemoAccount } from "@/lib/demo-content";
-import { businessProfileRow, DATA_TABLES, eventRow, moneyPlanRow, transactionRow } from "@/lib/db-rows";
+import { businessProfileRow, catalogItemRow, catalogVariantRows, DATA_TABLES, eventRow, moneyPlanRow, transactionRow } from "@/lib/db-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +52,8 @@ export async function POST(request: Request) {
   const clear = async () => {
     for (const table of DATA_TABLES) {
       const { error } = await db.from(table).delete().eq("user_id", user.id);
-      if (error) throw error;
+      // The catalog tables may not exist yet (before catalog.sql).
+      if (error && !(table.startsWith("catalog_") && error.code === "42P01")) throw error;
     }
   };
 
@@ -79,6 +80,12 @@ export async function POST(request: Request) {
       ]);
       const failed = results.find((r) => r.error);
       if (failed?.error) throw failed.error;
+      // The catalog (prices), items first. Skipped if catalog.sql hasn't been run yet.
+      const items = await db.from("catalog_items").insert(demo.catalog.map((i) => catalogItemRow(user.id, i)));
+      if (!items.error) {
+        const variants = await db.from("catalog_variants").insert(demo.catalog.flatMap((i) => catalogVariantRows(user.id, i)));
+        if (variants.error) throw variants.error;
+      } else if (items.error.code !== "42P01") throw items.error;
       return Response.json({ ok: true });
     }
 

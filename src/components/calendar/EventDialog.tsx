@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Check, CircleDollarSign, X } from "lucide-react";
+import type { PaidFrom } from "@/components/money/QuickIncome";
+import { useAppData } from "@/lib/data";
+import { formatMoney } from "@/lib/money";
 import { Button } from "@/components/Button";
 import { Field, inputClass, MoneyInput } from "@/components/Field";
 import {
@@ -21,7 +24,16 @@ export type EventTarget =
   | { mode: "new"; day: string; time?: string; allDay?: boolean }
   | { mode: "edit"; occurrence: Occurrence };
 
-export function EventDialog({ target, onClose }: { target: EventTarget | null; onClose: () => void }) {
+export function EventDialog({
+  target,
+  onClose,
+  onGotPaid,
+}: {
+  target: EventTarget | null;
+  onClose: () => void;
+  /** "Got paid" on a past appointment: log the money (from the catalog) */
+  onGotPaid?: (paid: PaidFrom) => void;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -43,7 +55,7 @@ export function EventDialog({ target, onClose }: { target: EventTarget | null; o
       }}
       className="m-auto max-h-[calc(100dvh-32px)] w-[min(560px,calc(100vw-32px))] overflow-y-auto rounded-card border border-line bg-card p-0 text-ink backdrop:bg-black/50"
     >
-      {target && <EventForm key={key} target={target} onClose={onClose} />}
+      {target && <EventForm key={key} target={target} onClose={onClose} onGotPaid={onGotPaid} />}
     </dialog>
   );
 }
@@ -53,8 +65,14 @@ function addHour(time: string): string {
   return `${String(Math.min(23, h + 1)).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function EventForm({ target, onClose }: { target: EventTarget; onClose: () => void }) {
+function EventForm({ target, onClose, onGotPaid }: { target: EventTarget; onClose: () => void; onGotPaid?: (paid: PaidFrom) => void }) {
   const editing = target.mode === "edit" ? target.occurrence : null;
+  const appData = useAppData();
+  // A past appointment can be marked "Got paid" once (per day, for weekly repeats).
+  const paidDay = editing?.firstDay ?? "";
+  const [openedAt] = useState(() => Date.now());
+  const pastAppointment = Boolean(editing && editing.event.type === "appointment" && editing.start.getTime() <= openedAt);
+  const loggedEntry = editing ? (appData?.transactions ?? []).find((t) => t.eventId === editing.event.id && (t.eventDate ?? t.date) === paidDay) : undefined;
   const event = editing?.event;
   const repeating = Boolean(event?.repeatsWeekly);
 
@@ -258,6 +276,36 @@ function EventForm({ target, onClose }: { target: EventTarget; onClose: () => vo
         />
         Repeats every week{day ? ` on ${new Date(localDateTime(day, "12:00")).toLocaleDateString("en-US", { weekday: "long" })}s` : ""}
       </label>
+
+      {pastAppointment && editing && onGotPaid && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-row bg-mint-tint px-4 py-3 text-mint-heading">
+          {loggedEntry ? (
+            <span className="inline-flex min-h-11 items-center gap-2 text-[15px] font-semibold">
+              <Check size={18} strokeWidth={2.6} aria-hidden="true" /> Logged ✓ {formatMoney(loggedEntry.amount)}
+            </span>
+          ) : (
+            <>
+              <span className="text-[15px]">Did this one get paid?</span>
+              <Button
+                size="sm"
+                variant="green"
+                icon={<CircleDollarSign size={16} aria-hidden="true" />}
+                onClick={() =>
+                  onGotPaid({
+                    eventId: editing.event.id,
+                    eventDate: paidDay,
+                    title: editing.event.title,
+                    ...(editing.event.clientName ? { clientName: editing.event.clientName } : {}),
+                    ...(editing.event.price ? { price: editing.event.price } : {}),
+                  })
+                }
+              >
+                Got paid
+              </Button>
+            </>
+          )}
+        </div>
+      )}
 
       {futureNote && (
         <p className="m-0 rounded-row bg-sky-tint px-4 py-3 text-[15px] text-sky-ink">

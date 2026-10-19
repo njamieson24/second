@@ -39,6 +39,7 @@ import {
   type TextRules,
 } from "@/lib/content-plan";
 import { toBusiness, toEvent, toTransaction, type BusinessRow, type EventRow, type TransactionRow } from "@/lib/db-rows";
+import { withCatalog } from "@/lib/catalog-server";
 import { formatMoney, knownClientNames } from "@/lib/money";
 import { gatherFacts, intSetting, validTimeZone } from "@/lib/server-facts";
 import type { Business, Mode } from "@/lib/store";
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
   const postId = typeof body.postId === "string" ? body.postId : "";
 
   const bizRes = await db.from("businesses").select("*").eq("user_id", user.id).maybeSingle();
-  const business = toBusiness(bizRes.data as BusinessRow | null);
+  const business = await withCatalog(db, user.id, toBusiness(bizRes.data as BusinessRow | null));
   if (!business) return send({ status: "error", message: "Please finish setting up your business first." }, 400);
   const mode: Mode = (bizRes.data as { mode?: Mode }).mode === "launch" ? "launch" : "running";
   const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 25_000 }) : null;

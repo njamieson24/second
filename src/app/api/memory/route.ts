@@ -13,6 +13,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 import { NOTES_DAILY_LIMIT } from "@/lib/chat";
 import { toBusiness, type BusinessRow } from "@/lib/db-rows";
+import { withCatalog } from "@/lib/catalog-server";
 import { formatMoney } from "@/lib/money";
 import { cleanNote, MAX_CHANGES, MAX_NOTES, NOTES_MAX_TOKENS, NOTES_MODEL, NOTES_SYSTEM, NOTES_TOOL } from "@/lib/notes-pass";
 
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
     db.from("business_notes").select("id, note").eq("user_id", user.id).order("updated_at", { ascending: false }).limit(MAX_NOTES),
     db.from("chat_proposals").select("summary, status").eq("user_id", user.id).order("created_at", { ascending: false }).limit(10),
   ]);
-  const business = toBusiness(biz.data as BusinessRow | null);
+  const business = await withCatalog(db, user.id, toBusiness(biz.data as BusinessRow | null));
   const notes = notesRes.data ?? [];
   const refs = new Map(notes.map((n, i) => [`N${i + 1}`, n.id as string]));
 

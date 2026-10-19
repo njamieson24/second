@@ -54,6 +54,7 @@ import {
 import { categoryLabel } from "@/lib/outreach";
 import { checkWebsites, findEmailForLead, runSearch, toLead, type LeadRow } from "@/lib/outreach-server";
 import { toBusiness, toEvent, toMoneyPlan, toTransaction, type BusinessRow, type EventRow, type MoneyPlanRow, type TransactionRow } from "@/lib/db-rows";
+import { withCatalog } from "@/lib/catalog-server";
 import type { Mode } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -213,7 +214,7 @@ export async function POST(request: Request) {
     console.error("chat: chat_messages table problem", history.error?.code ?? today.error?.code);
     return reply(500, { type: "error", message: NOT_SET_UP });
   }
-  const business = toBusiness(biz.data as BusinessRow | null);
+  const business = await withCatalog(db, user.id, toBusiness(biz.data as BusinessRow | null));
   if (!business) return reply(400, { type: "error", message: "Please finish setting up your business first, then come back to chat." });
 
   const usedToday = today.count ?? 0;

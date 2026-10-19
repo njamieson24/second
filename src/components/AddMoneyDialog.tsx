@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "./Button";
 import { Field, inputClass, MoneyInput } from "./Field";
+import { QuickIncome, type PaidFrom } from "./money/QuickIncome";
+import { familyOf } from "@/lib/business-kinds";
+import { activeItems, validAmount } from "@/lib/catalog";
 import { useAppData } from "@/lib/data";
 import { todayISO } from "@/lib/dates";
 import { knownClientNames, matchClientName } from "@/lib/money";
@@ -11,19 +14,32 @@ import { addTransaction, type Transaction } from "@/lib/store";
 
 export type MoneyKind = Transaction["kind"];
 
-/** Pop-up form to log money coming in or going out. */
+/**
+ * Pop-up to log money coming in or going out. Money in starts from the catalog (QuickIncome:
+ * a tap or two); "Type it in instead" (and money out) use the typed form.
+ */
 export function AddMoneyDialog({
   kind,
   incomeCategory,
+  paid,
   onClose,
 }: {
   /** null = closed */
   kind: MoneyKind | null;
   /** What a paid visit is called for this business, like "Session" */
   incomeCategory: string;
+  /** "Got paid" on a calendar appointment */
+  paid?: PaidFrom;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const data = useAppData();
+  const [typed, setTyped] = useState(false);
+  const hasCatalog = activeItems(data?.catalog ?? []).length > 0;
+  const close = () => {
+    setTyped(false);
+    onClose();
+  };
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -36,24 +52,29 @@ export function AddMoneyDialog({
     <dialog
       ref={dialogRef}
       aria-labelledby="add-money-title"
-      onClose={onClose}
+      onClose={close}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) close();
       }}
       className="m-auto w-[min(520px,calc(100vw-32px))] rounded-card border border-line bg-card p-0 text-ink backdrop:bg-black/50"
     >
-      {kind && <MoneyForm key={kind} kind={kind} incomeCategory={incomeCategory} onClose={onClose} />}
+      {kind === "income" && !typed && (hasCatalog || paid) ? (
+        <QuickIncome key={paid?.eventId ?? "in"} paid={paid} onTypeInstead={() => setTyped(true)} onClose={close} />
+      ) : (
+        kind && <MoneyForm key={kind} kind={kind} incomeCategory={incomeCategory} paid={kind === "income" ? paid : undefined} onClose={close} />
+      )}
     </dialog>
   );
 }
 
-function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKind; incomeCategory: string; onClose: () => void }) {
+function MoneyForm({ kind: startKind, incomeCategory, paid, onClose }: { kind: MoneyKind; incomeCategory: string; paid?: PaidFrom; onClose: () => void }) {
   const [kind, setKind] = useState<MoneyKind>(startKind);
-  const [amount, setAmount] = useState(0);
-  const [label, setLabel] = useState("");
-  const [date, setDate] = useState(todayISO());
-  const [client, setClient] = useState("");
+  const [amount, setAmount] = useState(paid?.price ?? 0);
+  const [label, setLabel] = useState(paid?.title ?? "");
+  const [date, setDate] = useState(paid?.eventDate ?? todayISO());
+  const [client, setClient] = useState(paid?.clientName ?? "");
   const data = useAppData();
+  const family = familyOf(data?.business?.type);
   const knownClients = knownClientNames(data?.transactions ?? [], data?.events ?? []);
   const categories =
     kind === "income"
@@ -61,7 +82,7 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
       : ["Supplies", "Rent", "Ads", "Insurance", "Apps", "Other"];
   const [category, setCategory] = useState(categories[0]);
   const [saving, setSaving] = useState(false);
-  const canSave = amount > 0 && label.trim().length > 0 && date.length === 10;
+  const canSave = amount > 0 && validAmount(amount) && label.trim().length > 0 && date.length === 10;
 
   const switchKind = (next: MoneyKind) => {
     setKind(next);
@@ -73,7 +94,15 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
     if (!canSave) return;
     setSaving(true);
     const clientName = kind === "income" && client.trim() ? matchClientName(client, knownClients).slice(0, 80) : undefined;
-    await addTransaction({ kind, amount, label: label.trim(), category, date, ...(clientName ? { clientName } : {}) });
+    await addTransaction({
+      kind,
+      amount,
+      label: label.trim(),
+      category,
+      date,
+      ...(clientName ? { clientName } : {}),
+      ...(paid && kind === "income" ? { eventId: paid.eventId, eventDate: paid.eventDate } : {}),
+    });
     onClose();
   }
 
@@ -119,12 +148,12 @@ function MoneyForm({ kind: startKind, incomeCategory, onClose }: { kind: MoneyKi
             className={inputClass}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder={kind === "income" ? "Like “Deep tissue massage”" : "Like “Supplies”"}
+            placeholder={kind === "income" ? `Like “${family.words.itemExample}”` : "Like “Supplies”"}
           />
         )}
       </Field>
 
-      {kind === "income" && (
+      {kind === "income" && family.tracksCustomers && (
         <Field label="Who was it? (optional)" help="Helps Second notice when a regular hasn't been back in a while.">
           {(id) => (
             <>

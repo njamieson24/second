@@ -1,6 +1,7 @@
 // How app data maps to database rows (see supabase/schema.sql).
 // Shared by store-supabase.ts (browser) and the demo-data route (server).
 
+import type { CatalogItem } from "./catalog";
 import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 
 export type BusinessRow = {
@@ -11,7 +12,7 @@ export type BusinessRow = {
   type: Business["type"] | null;
   type_label: string | null;
   area: string | null;
-  services: Business["services"];
+  // businesses.services is no longer read or written (prices live in the catalog).
   pay_goal: number | string;
   goal_note: string | null;
   opening_day: string | null;
@@ -28,10 +29,23 @@ export type MoneyPlanRow = {
   saved: number | string;
 };
 
-export type TransactionRow = Omit<Transaction, "amount" | "clientName"> & {
+export type TransactionRow = {
+  id: string;
+  date: string;
+  kind: Transaction["kind"];
   amount: number | string;
+  label: string;
+  category: string;
   user_id: string;
   client_name?: string | null;
+  item_id?: string | null;
+  variant_id?: string | null;
+  quantity?: number | null;
+  unit_price?: number | string | null;
+  discount?: number | string | null;
+  tip?: number | string | null;
+  event_id?: string | null;
+  event_date?: string | null;
 };
 
 export function toBusiness(row: BusinessRow | null): Business | null {
@@ -43,7 +57,8 @@ export function toBusiness(row: BusinessRow | null): Business | null {
     type: row.type,
     typeLabel: row.type_label ?? "",
     area: row.area ?? "",
-    services: row.services ?? [],
+    // Filled from the catalog by store.ts and catalog-server.ts, never from businesses.services.
+    services: [],
     payGoal: Number(row.pay_goal),
     goalNote: row.goal_note ?? undefined,
     openingDay: row.opening_day ?? undefined,
@@ -62,7 +77,7 @@ export function businessProfileRow(userId: string, b: Business) {
     type: b.type,
     type_label: b.typeLabel,
     area: b.area,
-    services: b.services,
+    // services: never written anymore. Prices live in the catalog (catalog.sql).
     pay_goal: b.payGoal,
     goal_note: b.goalNote ?? null,
     opening_day: b.openingDay ?? null,
@@ -83,6 +98,7 @@ export function moneyPlanRow(userId: string, p: MoneyPlan): MoneyPlanRow {
 }
 
 export function toTransaction(t: TransactionRow): Transaction {
+  const num = (v: number | string | null | undefined) => (v === null || v === undefined ? undefined : Number(v));
   return {
     id: t.id,
     date: t.date,
@@ -91,13 +107,89 @@ export function toTransaction(t: TransactionRow): Transaction {
     label: t.label,
     category: t.category,
     ...(t.client_name ? { clientName: t.client_name } : {}),
+    ...(t.item_id ? { itemId: t.item_id } : {}),
+    ...(t.variant_id ? { variantId: t.variant_id } : {}),
+    ...(t.quantity ? { quantity: t.quantity } : {}),
+    ...(num(t.unit_price) !== undefined ? { unitPrice: num(t.unit_price) } : {}),
+    ...(num(t.discount) ? { discount: num(t.discount) } : {}),
+    ...(num(t.tip) ? { tip: num(t.tip) } : {}),
+    ...(t.event_id ? { eventId: t.event_id } : {}),
+    ...(t.event_date ? { eventDate: t.event_date } : {}),
   };
 }
 
 export function transactionRow(userId: string, t: Transaction): TransactionRow {
-  const { clientName, ...rest } = t;
-  // client_name is only sent when there is one, so saving still works before week.sql adds the column.
-  return { ...rest, user_id: userId, ...(clientName ? { client_name: clientName } : {}) };
+  // Optional columns are only sent when set, so saving still works before week.sql /
+  // catalog.sql add them. With unit_price set, the database works out amount itself.
+  return {
+    id: t.id,
+    date: t.date,
+    kind: t.kind,
+    amount: t.amount,
+    label: t.label,
+    category: t.category,
+    user_id: userId,
+    ...(t.clientName ? { client_name: t.clientName } : {}),
+    ...(t.itemId ? { item_id: t.itemId } : {}),
+    ...(t.variantId ? { variant_id: t.variantId } : {}),
+    ...(t.unitPrice !== undefined ? { unit_price: t.unitPrice, quantity: t.quantity ?? 1, discount: t.discount ?? 0, tip: t.tip ?? 0 } : {}),
+    ...(t.eventId ? { event_id: t.eventId, event_date: t.eventDate ?? t.date } : {}),
+  };
+}
+
+export type CatalogItemRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  kind: CatalogItem["kind"];
+  active: boolean;
+  position: number;
+};
+
+export type CatalogVariantRow = {
+  id: string;
+  user_id: string;
+  item_id: string;
+  label: string;
+  minutes: number | null;
+  price: number | string;
+  is_default: boolean;
+  active: boolean;
+  position: number;
+};
+
+export function toCatalog(items: CatalogItemRow[], variants: CatalogVariantRow[]): CatalogItem[] {
+  return items
+    .map((i) => ({
+      id: i.id,
+      name: i.name,
+      kind: i.kind,
+      active: i.active,
+      position: i.position,
+      variants: variants
+        .filter((v) => v.item_id === i.id)
+        .map((v) => ({ id: v.id, label: v.label, minutes: v.minutes, price: Number(v.price), isDefault: v.is_default, active: v.active, position: v.position }))
+        .sort((a, b) => a.position - b.position),
+    }))
+    .sort((a, b) => a.position - b.position);
+}
+
+export function catalogItemRow(userId: string, item: CatalogItem): CatalogItemRow {
+  return { id: item.id, user_id: userId, name: item.name, kind: item.kind, active: item.active, position: item.position };
+}
+
+export function catalogVariantRows(userId: string, item: CatalogItem): CatalogVariantRow[] {
+  return item.variants.map((v) => ({
+    id: v.id,
+    user_id: userId,
+    item_id: item.id,
+    label: v.label.trim(),
+    minutes: v.minutes,
+    price: v.price,
+    is_default: v.isDefault,
+    active: v.active,
+    position: v.position,
+  }));
 }
 
 export type EventRow = {
@@ -166,7 +258,8 @@ export function eventRow(userId: string, e: CalendarEvent): EventRow {
 }
 
 /** The tables that hold one person's business data. */
-export const DATA_TABLES = ["events", "transactions", "roadmap_tasks", "money_plans", "businesses"] as const;
+// Order matters for Start over: money entries before the catalog and calendar they point to.
+export const DATA_TABLES = ["transactions", "events", "catalog_variants", "catalog_items", "roadmap_tasks", "money_plans", "businesses"] as const;
 
 /**
  * Also cleared by "Start over": what Second learned (notes), its suggestion cards, this

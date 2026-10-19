@@ -2,6 +2,7 @@
 // It never talks to the database. Only store.ts uses this file.
 
 import type { DemoAccount } from "./demo-content";
+import { entryTotal, type CatalogItem } from "./catalog";
 import type { Backend, Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./store";
 
 const KEYS = {
@@ -12,6 +13,7 @@ const KEYS = {
   transactions: "second:v1:transactions",
   showSamples: "second:v1:show-samples",
   events: "second:v1:events",
+  catalog: "second:v1:catalog",
 } as const;
 
 function read<T>(key: string): T | null {
@@ -77,7 +79,20 @@ export const localBackend: Backend & { fill: (demo: DemoAccount) => Promise<void
     return read<Transaction[]>(KEYS.transactions) ?? [];
   },
   async addTransaction(transaction) {
-    write(KEYS.transactions, [...(read<Transaction[]>(KEYS.transactions) ?? []), transaction]);
+    const all = read<Transaction[]>(KEYS.transactions) ?? [];
+    // Same rules as the database: the total comes from the parts, and an appointment is logged once.
+    if (transaction.eventId && all.some((t) => t.eventId === transaction.eventId && (t.eventDate ?? t.date) === (transaction.eventDate ?? transaction.date)))
+      throw new Error("That appointment is already logged.");
+    const amount = transaction.unitPrice !== undefined ? entryTotal({ unitPrice: transaction.unitPrice, quantity: transaction.quantity, discount: transaction.discount, tip: transaction.tip }) : transaction.amount;
+    write(KEYS.transactions, [...all, { ...transaction, amount }]);
+  },
+
+  async getCatalog() {
+    return read<CatalogItem[]>(KEYS.catalog) ?? [];
+  },
+  async saveCatalogItem(item) {
+    const all = read<CatalogItem[]>(KEYS.catalog) ?? [];
+    write(KEYS.catalog, all.some((i) => i.id === item.id) ? all.map((i) => (i.id === item.id ? item : i)) : [...all, item]);
   },
   async deleteTransaction(id) {
     write(
@@ -124,6 +139,7 @@ export const localBackend: Backend & { fill: (demo: DemoAccount) => Promise<void
     write(KEYS.moneyPlan, demo.moneyPlan);
     write(KEYS.transactions, demo.transactions);
     write(KEYS.events, demo.events);
+    write(KEYS.catalog, demo.catalog);
     write(KEYS.showSamples, true);
   },
 };

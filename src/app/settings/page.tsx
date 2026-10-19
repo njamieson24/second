@@ -9,6 +9,7 @@ import { Chip } from "@/components/Chip";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WhatSecondKnows } from "@/components/WhatSecondKnows";
+import { CatalogEditor } from "@/components/money/CatalogEditor";
 import { useLoadedData } from "@/lib/data";
 import { formatMoney } from "@/lib/money";
 import { useMode } from "@/lib/mode";
@@ -104,6 +105,8 @@ function Settings() {
 
       <WhatSecondKnows />
 
+      <CatalogEditor />
+
       <div className="grid grid-cols-1 items-start gap-6 desk:grid-cols-2">
         <Card title="Your business" aside={<Chip tone="sky">{mode === "launch" ? "Launch mode" : "Running mode"}</Chip>}>
           <dl className="mt-3.5 mb-0 flex flex-col gap-3 text-[15px]">
@@ -111,7 +114,6 @@ function Settings() {
             <Row label="Business" value={business.businessName || "Not picked yet"} />
             <Row label="Type" value={business.typeLabel} />
             <Row label="Area" value={business.area} />
-            <Row label="Services" value={business.services.map((s) => `${s.name} (${formatMoney(s.price)})`).join(", ")} />
             <Row label="Pay goal" value={`${formatMoney(business.payGoal)} a month`} />
           </dl>
           <div className="mt-5 flex flex-wrap gap-3">
