@@ -294,27 +294,37 @@ function LiveChat() {
 
 /** A suggested update. Only Approve changes anything, under the owner's own login. */
 function ProposalCard({ proposal, onChange }: { proposal: ChatProposal; onChange: (status: ChatProposal["status"]) => void }) {
+  const money = proposal.change.kind === "log_income";
   const [busy, setBusy] = useState<"approve" | "ignore" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // The catalog changed since this card was made: the new amount waits for the owner's OK.
+  const [retry, setRetry] = useState<ChatProposal["change"] | null>(null);
   async function decide(action: "approve" | "ignore") {
     setBusy(action);
     setError(null);
-    const result = action === "approve" ? await approveProposal(proposal) : await ignoreProposal(proposal);
+    const card = retry && action === "approve" ? { ...proposal, change: retry } : proposal;
+    const result = action === "approve" ? await approveProposal(card) : await ignoreProposal(proposal);
     setBusy(null);
-    if (result.ok) onChange(result.status);
-    else setError(result.message);
+    if (result.ok) {
+      setRetry(null);
+      onChange(result.status);
+      return;
+    }
+    setError(result.message);
+    setRetry(result.retry ?? null);
+    if (result.status) onChange(result.status);
   }
 
   return (
-    <div className="rounded-row border border-line bg-card px-4 py-3.5" role="group" aria-label="Suggested update">
-      <div className="text-[13px] font-semibold text-sky-ink">Suggested update</div>
+    <div className="rounded-row border border-line bg-card px-4 py-3.5" role="group" aria-label={money ? "Log money in" : "Suggested update"}>
+      <div className="text-[13px] font-semibold text-sky-ink">{money ? "Log money in" : "Suggested update"}</div>
       <p className="mt-1 mb-0 text-[15px] leading-normal text-ink">{proposal.summary}</p>
       <div className="mt-3" aria-live="polite">
         {proposal.status === "pending" && (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={() => decide("approve")} disabled={busy !== null}>
-              {busy === "approve" ? "Saving…" : "Approve"}
+              {busy === "approve" ? "Saving…" : retry && retry.kind === "log_income" ? `Log ${formatMoney(retry.total)} instead` : "Approve"}
             </Button>
             <Button size="sm" variant="ghost" weight="medium" onClick={() => decide("ignore")} disabled={busy !== null}>
               Ignore
@@ -323,10 +333,10 @@ function ProposalCard({ proposal, onChange }: { proposal: ChatProposal; onChange
         )}
         {proposal.status === "approved" && (
           <Chip tone="mint" className="inline-flex items-center gap-1">
-            <Check size={14} strokeWidth={2.6} aria-hidden="true" /> Updated
+            <Check size={14} strokeWidth={2.6} aria-hidden="true" /> {money ? "Logged" : "Updated"}
           </Chip>
         )}
-        {proposal.status === "ignored" && <Chip tone="neutral">Ignored. Nothing changed.</Chip>}
+        {proposal.status === "ignored" && <Chip tone="neutral">{money ? "Ignored. Nothing was logged." : "Ignored. Nothing changed."}</Chip>}
         {proposal.status === "stale" && (
           <p className="m-0 text-sm text-muted">This can&apos;t be applied anymore, because it changed since. Nothing was changed.</p>
         )}

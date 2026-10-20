@@ -13,6 +13,7 @@ import type { Business, CalendarEvent, Mode, MoneyPlan, Transaction } from "./st
 import type { BusinessNote } from "./chat";
 import type { PlanAction, WeekPlan } from "./week";
 import { servicesFromCatalog, type CatalogItem } from "./catalog";
+import type { CatalogDraft } from "./catalog-extract";
 import type { ContentPost, ContentWeek } from "./content";
 import { OPT_OUT_LINE, type Lead } from "./outreach";
 import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
@@ -581,3 +582,17 @@ export const lessons = [
   { title: "Pricing without guessing", minutes: 4 },
   { title: "Keeping business and personal money apart", minutes: 3 },
 ];
+
+/**
+ * "Find prices Second already knows" in the demo: a made-up draft (no AI). The sample notes
+ * mention a hot stone massage that isn't in Maria's list yet.
+ */
+export function sampleCatalogDraft(catalog: CatalogItem[]): CatalogDraft {
+  const has = catalog.some((i) => i.active && i.name.toLowerCase() === "hot stone massage");
+  const source = { kind: "note" as const, text: "Offers hot stone massage: $140 for 90 minutes (sample)." };
+  return {
+    lines: has ? [] : [{ id: "L1", type: "new_item", itemId: null, variantId: null, itemName: "Hot stone massage", optionLabel: "90 min", minutes: 90, price: 140, oldPrice: null, source }],
+    questions: [{ question: "You mentioned couples massage. What do you charge for it, and how long is it? (sample)", source: { kind: "note", text: "Thinking about adding couples massage (sample)." } }],
+    dropped: 0,
+  };
+}

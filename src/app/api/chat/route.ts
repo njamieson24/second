@@ -33,7 +33,7 @@ import {
   type ProposalStatus,
 } from "@/lib/chat";
 import { businessContext, notesContext, proposalsContext, SECOND_PERSONA } from "@/lib/chat-context";
-import { checkToolCall, PROPOSAL_TOOLS, TOOL_RULES } from "@/lib/chat-tools";
+import { catalogContext, catalogRefs, checkToolCall, PROPOSAL_TOOLS, TOOL_RULES } from "@/lib/chat-tools";
 import {
   asksAboutBusinesses,
   wantsSearch,
@@ -54,7 +54,8 @@ import {
 import { categoryLabel } from "@/lib/outreach";
 import { checkWebsites, findEmailForLead, runSearch, toLead, type LeadRow } from "@/lib/outreach-server";
 import { toBusiness, toEvent, toMoneyPlan, toTransaction, type BusinessRow, type EventRow, type MoneyPlanRow, type TransactionRow } from "@/lib/db-rows";
-import { withCatalog } from "@/lib/catalog-server";
+import { servicesFromCatalog } from "@/lib/catalog";
+import { loadCatalog } from "@/lib/catalog-server";
 import type { Mode } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -214,7 +215,11 @@ export async function POST(request: Request) {
     console.error("chat: chat_messages table problem", history.error?.code ?? today.error?.code);
     return reply(500, { type: "error", message: NOT_SET_UP });
   }
-  const business = await withCatalog(db, user.id, toBusiness(biz.data as BusinessRow | null));
+  // Prices come from the catalog only. Second gets it as a list of IDs (V1, V2...) for "Log income".
+  const catalogItems = await loadCatalog(db, user.id);
+  const fromRow = toBusiness(biz.data as BusinessRow | null);
+  const business = fromRow ? { ...fromRow, services: servicesFromCatalog(catalogItems) } : null;
+  const sold = catalogRefs(catalogItems);
   if (!business) return reply(400, { type: "error", message: "Please finish setting up your business first, then come back to chat." });
 
   const usedToday = today.count ?? 0;
@@ -281,7 +286,9 @@ export async function POST(request: Request) {
     { type: "text", text: rules },
     {
       type: "text",
-      text: [context, notesContext(notes), proposalsContext(recentCards), outreachReady ? partnerHint(business) : "", recentCardsBlock(recent)].filter(Boolean).join("\n\n"),
+      text: [context, memoryReady ? catalogContext(sold) : "", notesContext(notes), proposalsContext(recentCards), outreachReady ? partnerHint(business) : "", recentCardsBlock(recent)]
+        .filter(Boolean)
+        .join("\n\n"),
     },
   ];
   const timeLeft = () => started + REPLY_BY_MS - Date.now();
@@ -499,16 +506,25 @@ export async function POST(request: Request) {
 
         // Suggested updates: check each one; only good ones become cards.
         const cards: ChatProposal[] = [];
+        // Unclear (like "a deep tissue" when there's 60 and 90 min): no card, Second asks instead.
+        const asks: string[] = [];
         const proposalBlocks = allBlocks.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use" && PROPOSAL_NAMES.has(b.name));
         if (final.stop_reason !== "max_tokens" && final.stop_reason !== "refusal") {
           for (const block of proposalBlocks) {
             if (cards.length >= MAX_PROPOSALS) break;
-            const checked = checkToolCall(block.name, block.input, { business, events, refs, timeZone, now });
+            const checked = checkToolCall(block.name, block.input, { business, events, refs, timeZone, now, catalog: sold, message });
+            if (checked && "ask" in checked) {
+              if (!asks.includes(checked.ask)) asks.push(checked.ask);
+              continue;
+            }
             if (checked && !cards.some((c) => c.summary === checked.summary))
               cards.push({ ...checked, id: randomUUID(), messageId: replyId, status: "pending" });
           }
         }
-        if (proposalBlocks.length && !text.trim()) {
+        if (asks.length) say(`${text.trim() ? "\n\n" : ""}${asks.join(" ")}`);
+        if (asks.length && !cards.length) {
+          // The question is the reply; no "couldn't set that up" note.
+        } else if (proposalBlocks.length && !text.trim()) {
           say(
             cards.length
               ? "Here's what I can update for you. Nothing changes until you tap Approve."

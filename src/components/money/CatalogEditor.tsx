@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
+import { PriceDraft } from "./PriceDraft";
 import { inputClass, MoneyInput } from "@/components/Field";
 import { familyOf } from "@/lib/business-kinds";
 import { activeItems, activeVariants, newVariant, variantName, type CatalogItem, type CatalogVariant } from "@/lib/catalog";
@@ -74,6 +75,7 @@ export function CatalogEditor() {
           </div>
         )
       )}
+      {!editing && <PriceDraft itemWord={w.item} />}
     </Card>
   );
 }

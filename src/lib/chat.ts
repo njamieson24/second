@@ -41,7 +41,26 @@ export type ProposalChange =
       clientName: string | null;
     }
   | { kind: "move_event"; eventId: string; title: string; allDay: boolean; start: string; end: string }
-  | { kind: "cancel_event"; eventId: string; title: string; when: string };
+  | { kind: "cancel_event"; eventId: string; title: string; when: string }
+  | {
+      /** Money in, from the catalog. Saved only when the owner taps Approve. */
+      kind: "log_income";
+      itemId: string;
+      variantId: string;
+      /** "Aromatherapy, 60 min" (what the entry will be called) */
+      label: string;
+      quantity: number;
+      unitPrice: number;
+      /** The catalog price when the card was made (Approve re-checks it) */
+      catalogPrice?: number;
+      tip: number;
+      discount: number;
+      /** price x quantity - discount + tip (the database works it out again) */
+      total: number;
+      /** YYYY-MM-DD in the owner's time zone */
+      date: string;
+      clientName: string | null;
+    };
 
 export type ChatProposal = {
   id: string;

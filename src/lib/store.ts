@@ -22,7 +22,10 @@ import { SAMPLE_NOTES, sampleContentWeek, sampleLeads, sampleOutreachDraft, samp
 import type { ContentPost, ContentResponse, ContentWeek, PostStatus } from "./content";
 import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
 import { OUTREACH_LIMITS, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "./outreach";
-import { buildDemoAccount } from "./demo-content";
+import { buildDemoAccount, sampleCatalogDraft } from "./demo-content";
+import type { CatalogDraft, CatalogResponse, DraftLine } from "./catalog-extract";
+import { capital, wordsFor } from "./business-kinds";
+import { formatMoney } from "./money";
 import {
   activeItems,
   activeVariants,
@@ -31,6 +34,7 @@ import {
   findVariant,
   itemProblems,
   newItem,
+  newVariant,
   servicesFromCatalog,
   validPrice,
   type CatalogItem,
@@ -441,6 +445,55 @@ export async function hideCatalogItem(id: string): Promise<void> {
   if (item) await change((b) => b.saveCatalogItem({ ...item, active: false }));
 }
 
+// ---------- "Find prices Second already knows" ----------
+
+export type DraftResult = { ok: true; draft: CatalogDraft; message?: string; sample: boolean } | { ok: false; message: string };
+
+/** One Haiku look at their notes and approved cards. Returns a draft; nothing is saved. */
+export async function findCatalogPrices(): Promise<DraftResult> {
+  if (await isDemo()) return { ok: true, draft: sampleCatalogDraft(await getCatalog()), sample: true };
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false, message: "Please log in." };
+  try {
+    const res = await fetch("/api/catalog", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: "extract" }) });
+    const body = (await res.json()) as CatalogResponse;
+    if (body.status === "error") return { ok: false, message: body.message };
+    return { ok: true, draft: { lines: body.lines, questions: body.questions, dropped: body.dropped }, message: body.message, sample: false };
+  } catch {
+    return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
+  }
+}
+
+/** Save the draft lines the owner approved (each through saveCatalogItem, which checks prices). */
+export async function applyCatalogDraft(lines: DraftLine[]): Promise<{ ok: true; saved: number } | { ok: false; message: string; saved: number }> {
+  const business = await getBusiness();
+  if (!business) return { ok: false, message: "Please finish setting up first.", saved: 0 };
+  let saved = 0;
+  for (const line of lines) {
+    const catalog = await getCatalog();
+    let r: { ok: true } | { ok: false; message: string };
+    if (line.type === "new_item") {
+      const position = catalog.reduce((max, i) => Math.max(max, i.position + 1), 0);
+      const item = newItem({ name: line.itemName, price: line.price, minutes: line.minutes, type: business.type, position });
+      if (line.optionLabel) item.variants = item.variants.map((v) => ({ ...v, label: line.optionLabel }));
+      r = await saveCatalogItem(item);
+    } else {
+      const item = catalog.find((i) => i.id === line.itemId);
+      if (!item) return { ok: false, message: `${line.itemName} isn't in your list anymore.`, saved };
+      if (line.type === "new_option") {
+        // The first option gets a name too, so both show as choices ("60 min", "90 min").
+        const named = item.variants.map((v) => (v.active && !v.label.trim() && v.minutes ? { ...v, label: `${v.minutes} min` } : v));
+        const position = item.variants.reduce((m, v) => Math.max(m, v.position + 1), 0);
+        r = await saveCatalogItem({ ...item, variants: [...named, { ...newVariant(position, line.optionLabel, line.price, line.minutes), price: line.price }] });
+      } else r = await saveCatalogItem({ ...item, variants: item.variants.map((v) => (v.id === line.variantId ? { ...v, price: line.price } : v)) });
+    }
+    if (!r.ok) return { ok: false, message: `${line.itemName}: ${r.message}`, saved };
+    saved++;
+  }
+  return { ok: true, saved };
+}
+
 /** Onboarding: turn the chosen services into catalog items, only if the catalog is empty. */
 export async function ensureCatalog(services: Service[], type: BusinessType): Promise<void> {
   if ((await getCatalog()).length) return;
@@ -655,6 +708,30 @@ export async function sendChatMessage(message: string, handlers: ChatHandlers): 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
 /** Make the change on a card, with the same functions Settings and the Calendar use. */
+/** A card that can't be saved as it is: the catalog changed since it was made. */
+type CardCheck = { retry: ProposalChange; message: string } | { removed: string };
+
+/**
+ * "Log income" cards are re-checked against the catalog when Approve is tapped: if the option
+ * was hidden or its price changed since the card was made, nothing is saved.
+ */
+async function recheckIncome(change: Extract<ProposalChange, { kind: "log_income" }>): Promise<CardCheck | null> {
+  const business = await getBusiness();
+  const item = (await getCatalog()).find((i) => i.id === change.itemId);
+  const variant = item?.variants.find((v) => v.id === change.variantId);
+  if (!item || !item.active || !variant || !variant.active) return { removed: `This ${wordsFor(business?.type).item} was removed. Nothing was logged.` };
+  const madeWith = change.catalogPrice ?? change.unitPrice;
+  if (variant.price === madeWith) return null;
+  // They said a price of their own: keep it. Otherwise use the new catalog price.
+  const unitPrice = change.unitPrice === madeWith ? variant.price : change.unitPrice;
+  const total = entryTotal({ unitPrice, quantity: change.quantity, discount: change.discount, tip: change.tip });
+  if (total <= 0) return { removed: `The price of ${change.label} changed. Nothing was logged.` };
+  return {
+    retry: { ...change, unitPrice, catalogPrice: variant.price, total },
+    message: `Price changed to ${formatMoney(variant.price)}. Log ${formatMoney(total)} instead?`,
+  };
+}
+
 async function applyChange(change: ProposalChange): Promise<boolean> {
   const business = await getBusiness();
   if (!business) return false;
@@ -685,6 +762,26 @@ async function applyChange(change: ProposalChange): Promise<boolean> {
     case "set_pay_goal":
       await savePayGoal(change.newGoal);
       return true;
+    case "log_income": {
+      // Only if that option is still on sale; the database works out the total again.
+      const item = catalog.find((i) => i.id === change.itemId && i.active);
+      if (!item || !item.variants.some((v) => v.id === change.variantId && v.active)) return false;
+      await addTransaction({
+        kind: "income",
+        amount: change.total,
+        label: change.label,
+        category: capital(wordsFor(business.type).visit),
+        date: change.date,
+        itemId: change.itemId,
+        variantId: change.variantId,
+        quantity: change.quantity,
+        unitPrice: change.unitPrice,
+        ...(change.discount ? { discount: change.discount } : {}),
+        ...(change.tip ? { tip: change.tip } : {}),
+        ...(change.clientName ? { clientName: change.clientName } : {}),
+      });
+      return true;
+    }
     case "add_event":
       await addEvent({
         title: change.title,
@@ -717,12 +814,23 @@ async function setCardStatus(id: string, status: ProposalStatus): Promise<boolea
   return !error;
 }
 
-export type CardResult = { ok: true; status: ProposalStatus } | { ok: false; message: string };
+export type CardResult =
+  | { ok: true; status: ProposalStatus }
+  | { ok: false; message: string; status?: ProposalStatus; retry?: ProposalChange };
 
 /** Approve a card: make the change under the owner's own login, then mark the card. */
 export async function approveProposal(card: ChatProposal): Promise<CardResult> {
   if (!(await currentUser())) return { ok: false, message: "Please log in again." };
   try {
+    if (card.change.kind === "log_income") {
+      const check = await recheckIncome(card.change);
+      if (check && "removed" in check) {
+        await setCardStatus(card.id, "stale");
+        return { ok: false, message: check.removed, status: "stale" };
+      }
+      // Nothing saved: the owner confirms the new amount first ("Log $Y instead?").
+      if (check) return { ok: false, message: check.message, retry: check.retry };
+    }
     const applied = await applyChange(card.change);
     await remote?.backend.settle(); // make sure it's saved before Second's next reply reads it
     const status: ProposalStatus = applied ? "approved" : "stale";
