@@ -45,6 +45,8 @@ export function draftPrompt(input: {
   notes: string[];
   lead: { name: string; category: string; town: string | null };
   goal: string;
+  /** A follow-up to an email sent this many days ago that got no reply yet */
+  followUpDays?: number | null;
 }): string {
   return `From: ${input.owner.name}, who runs a ${input.owner.typeLabel.toLowerCase()} business in ${input.owner.town || "town"}.
 Their business name: ${input.owner.business ? input.owner.business : "none yet (sign with just their first name)"}.
@@ -53,8 +55,13 @@ Their services and prices: ${input.owner.services || "none listed"}.${
   }
 To: ${input.lead.name}, a ${input.lead.category.toLowerCase()} in ${input.lead.town || "the same area"}.
 The owner's goal for this email: ${input.goal.trim() ? `"${input.goal.trim()}"` : "introduce themselves and suggest one way to work together"}.
+${
+  input.followUpDays
+    ? `This is a short, polite FOLLOW-UP: the owner emailed them ${input.followUpDays} day${input.followUpDays === 1 ? "" : "s"} ago and hasn't heard back. Under 60 words. Mention the earlier email in one line, repeat the one idea briefly, keep the same one ask. Never sound pushy or guilt them.
 
-Write the email.`;
+Write the follow-up.`
+    : "Write the email."
+}`;
 }
 
 export const wordCount = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;

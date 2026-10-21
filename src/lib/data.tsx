@@ -14,6 +14,7 @@ import {
   getAccount,
   getBusiness,
   getCatalog,
+  getPartnerReplyCount,
   getEvents,
   getMode,
   getMoneyPlan,
@@ -43,6 +44,8 @@ export type AppData = {
   events: CalendarEvent[];
   /** What the business sells, including hidden items (see src/lib/catalog.ts) */
   catalog: CatalogItem[];
+  /** Partners who replied and are waiting on the owner (the blue badge) */
+  partnerReplies: number;
 };
 
 type DataState = { data: AppData | null; loadFailed: boolean };
@@ -62,9 +65,10 @@ async function loadAll(): Promise<AppData> {
       transactions: [],
       events: [],
       catalog: [],
+      partnerReplies: 0,
     };
   }
-  const [business, mode, showSamples, completedTasks, moneyPlan, transactions, events, catalog] = await Promise.all([
+  const [business, mode, showSamples, completedTasks, moneyPlan, transactions, events, catalog, partnerReplies] = await Promise.all([
     getBusiness(),
     getMode(),
     getShowSamples(),
@@ -73,8 +77,9 @@ async function loadAll(): Promise<AppData> {
     getTransactions(),
     getEvents(),
     getCatalog(),
+    getPartnerReplyCount(),
   ]);
-  return { account, business, mode, showSamples, completedTasks, moneyPlan, transactions, events, catalog };
+  return { account, business, mode, showSamples, completedTasks, moneyPlan, transactions, events, catalog, partnerReplies };
 }
 
 export function DataProvider({ children }: { children: React.ReactNode }) {

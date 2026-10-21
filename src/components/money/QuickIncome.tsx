@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Minus, Plus, Repeat2, X } from "lucide-react";
 import { Button } from "@/components/Button";
 import { inputClass, MoneyInput } from "@/components/Field";
@@ -9,7 +9,8 @@ import { activeItems, activeVariants, entryName, entryTotal, validAmount, varian
 import { useLoadedData } from "@/lib/data";
 import { addDays, todayISO } from "@/lib/dates";
 import { formatMoney, knownClientNames, matchClientName } from "@/lib/money";
-import { addTransaction, type Transaction } from "@/lib/store";
+import { dealDiscount, dealText, type Lead } from "@/lib/outreach";
+import { addTransaction, getLeads, type Transaction } from "@/lib/store";
 
 /** "Got paid" from a calendar appointment: what we already know about it. */
 export type PaidFrom = { eventId: string; eventDate: string; title: string; clientName?: string; price?: number };
@@ -52,6 +53,17 @@ export function QuickIncome({ paid, onTypeInstead, onClose }: { paid?: PaidFrom;
   const [date, setDate] = useState(paid?.eventDate ?? todayISO());
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  // "From a partner?": businesses you made a deal with. Their deal sets the discount.
+  const [partners, setPartners] = useState<Lead[]>([]);
+  const [partnerId, setPartnerId] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    getLeads().then((r) => live && setPartners(r.leads.filter((l) => l.stage === "deal" && l.status !== "not_interested")));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const partner = partners.find((p) => p.id === partnerId) ?? null;
 
   const choose = (p: Pick, price?: number, qty = 1) => {
     setPicked(p);
@@ -84,7 +96,10 @@ export function QuickIncome({ paid, onTypeInstead, onClose }: { paid?: PaidFrom;
   }
   const mostUsed = [...usage.values()].sort((a, b) => b.n - a.n).slice(0, 4).map((x) => x.p);
 
-  const total = entryTotal({ unitPrice, quantity, discount, tip });
+  // With a partner, the deal's discount replaces a typed one (the database works it out the same way).
+  const dealOff = partner && picked ? dealDiscount(partner.deal, { unitPrice, quantity, variantId: picked.variant.id }) : 0;
+  const discountUsed = partner ? dealOff : discount;
+  const total = entryTotal({ unitPrice, quantity, discount: discountUsed, tip });
   const recentClients = knownClientNames(transactions, events).slice(0, 4);
   const today = todayISO();
   const yesterday = addDays(today, -1);
@@ -110,8 +125,9 @@ export function QuickIncome({ paid, onTypeInstead, onClose }: { paid?: PaidFrom;
       variantId: picked.variant.id,
       quantity,
       unitPrice,
-      ...(discount ? { discount } : {}),
+      ...(discountUsed ? { discount: discountUsed } : {}),
       ...(tip ? { tip } : {}),
+      ...(partner ? { partnerLeadId: partner.id } : {}),
       ...(clientName ? { clientName } : {}),
       ...(paid ? { eventId: paid.eventId, eventDate: paid.eventDate } : {}),
     });
@@ -197,16 +213,37 @@ export function QuickIncome({ paid, onTypeInstead, onClose }: { paid?: PaidFrom;
           </div>
         </div>
 
-        {extras ? (
-          <div className="grid grid-cols-2 gap-3">
+        {partners.length > 0 && (
+          <fieldset className="m-0 border-0 p-0">
+            <legend className="mb-1.5 p-0 text-[13px] font-semibold tracking-[0.06em] text-muted uppercase">From a partner?</legend>
+            <div className="flex flex-wrap gap-2">
+              {[{ id: null, name: "No" }, ...partners.map((p) => ({ id: p.id, name: p.name }))].map((p) => (
+                <button
+                  key={p.id ?? "none"}
+                  type="button"
+                  aria-pressed={partnerId === p.id}
+                  onClick={() => setPartnerId(p.id)}
+                  className={`min-h-11 max-w-full rounded-full px-4 text-[15px] break-words ${partnerId === p.id ? "bg-sky text-on-sky" : "border border-line-strong bg-card text-ink hover:border-ink"}`}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
+        {extras || partner ? (
+          <div className={`grid gap-3 ${partner ? "grid-cols-1" : "grid-cols-2"}`}>
             <label className="flex flex-col gap-1.5 text-[15px] font-medium">
               Tip
               <MoneyInput value={tip} onChange={setTip} label="Tip" />
             </label>
-            <label className="flex flex-col gap-1.5 text-[15px] font-medium">
-              Discount
-              <MoneyInput value={discount} onChange={setDiscount} label="Discount" />
-            </label>
+            {!partner && (
+              <label className="flex flex-col gap-1.5 text-[15px] font-medium">
+                Discount
+                <MoneyInput value={discount} onChange={setDiscount} label="Discount" />
+              </label>
+            )}
           </div>
         ) : (
           <button type="button" onClick={() => setExtras(true)} className="min-h-11 self-start text-[15px] font-medium text-sky-ink underline">
@@ -261,6 +298,22 @@ export function QuickIncome({ paid, onTypeInstead, onClose }: { paid?: PaidFrom;
         {alreadyLogged && <p className="m-0 text-[15px] text-ink">This appointment is already logged.</p>}
 
         <div className="flex flex-col gap-2 border-t border-line-soft pt-4">
+          {partner && (
+            <dl className="m-0 flex flex-col gap-1 text-[15px]">
+              <div className="flex justify-between">
+                <dt className="text-muted">Price{quantity > 1 ? ` × ${quantity}` : ""}</dt>
+                <dd className="m-0 tabular-nums">{formatMoney(unitPrice * quantity)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted">Deal discount{partner.deal ? ` (${dealText(partner.deal)})` : ""}</dt>
+                <dd className="m-0 tabular-nums">{dealOff ? `−${formatMoney(dealOff)}` : formatMoney(0)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted">Tip</dt>
+                <dd className="m-0 tabular-nums">{formatMoney(tip)}</dd>
+              </div>
+            </dl>
+          )}
           <div className="flex items-baseline justify-between text-[15px]">
             <span className="text-muted">Total{tip ? `, with ${formatMoney(tip)} tip` : ""}</span>
             <span className="text-[28px] font-semibold tabular-nums">{formatMoney(total)}</span>
@@ -272,6 +325,7 @@ export function QuickIncome({ paid, onTypeInstead, onClose }: { paid?: PaidFrom;
           >
             {saving ? "Saving…" : `Save ${formatMoney(total)}`}
           </button>
+          {partner && <p className="m-0 text-center text-sm text-mint-deep">Counts toward what {partner.name} has earned you</p>}
         </div>
       </form>
     );

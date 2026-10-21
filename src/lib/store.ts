@@ -21,8 +21,9 @@ import type {
 import { SAMPLE_NOTES, sampleContentWeek, sampleLeads, sampleOutreachDraft, sampleWeek } from "./demo-content";
 import type { ContentPost, ContentResponse, ContentWeek, PostStatus } from "./content";
 import type { ActionStatus, WeekPlan, WeekResponse } from "./week";
-import { OUTREACH_LIMITS, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage } from "./outreach";
-import { buildDemoAccount, sampleCatalogDraft } from "./demo-content";
+import { dealDiscount, OUTREACH_LIMITS, type DealTerms, type Lead, type LeadStatus, type OutreachResponse, type OutreachUsage, type PartnerStage } from "./outreach";
+import { buildDemoAccount, sampleCatalogDraft, sampleMatches } from "./demo-content";
+import type { Match, MatchesResponse } from "./matches";
 import type { CatalogDraft, CatalogResponse, DraftLine } from "./catalog-extract";
 import { capital, wordsFor } from "./business-kinds";
 import { formatMoney } from "./money";
@@ -111,6 +112,8 @@ export type Transaction = {
   /** "Got paid" on a calendar appointment, and which day (weekly repeats) */
   eventId?: string;
   eventDate?: string;
+  /** "From a partner?": the partner business (a lead at the deal stage). The database applies its deal. */
+  partnerLeadId?: string;
 };
 
 // ---------- Calendar ----------
@@ -662,7 +665,7 @@ export type ChatHandlers = {
   onCardEmail?: (leadId: string, email: string | null, emailSource: string | null) => void;
 };
 
-export async function sendChatMessage(message: string, handlers: ChatHandlers): Promise<ChatSendResult> {
+export async function sendChatMessage(message: string, handlers: ChatHandlers, about?: { leadId?: string | null }): Promise<ChatSendResult> {
   const { onText, onProposals, onStatus, onBusinessCards, onCardEmail } = handlers;
   const { data } = await supabase().auth.getSession();
   const token = data.session?.access_token;
@@ -671,7 +674,7 @@ export async function sendChatMessage(message: string, handlers: ChatHandlers): 
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ message, timeZone: deviceTimeZone() }),
+      body: JSON.stringify({ message, timeZone: deviceTimeZone(), ...(about?.leadId ? { aboutLeadId: about.leadId } : {}) }),
     });
     if (!res.body) return { ok: false, message: "We couldn't reach Second. Check your internet connection and try again." };
     const reader = res.body.getReader();
@@ -1140,6 +1143,14 @@ const rowToLead = (r: LeadRow): Lead => ({
   draftBody: (r.draft_body as string | null) ?? null,
   emailCheckedAt: (r.email_checked_at as string | null) ?? null,
   saved: r.saved !== false,
+  stage: (r.stage as PartnerStage | undefined) ?? "found",
+  emailedAt: (r.emailed_at as string | null) ?? null,
+  followUpOn: (r.follow_up_on as string | null) ?? null,
+  repliedAt: (r.replied_at as string | null) ?? null,
+  dealAt: (r.deal_at as string | null) ?? null,
+  deal: r.deal_type
+    ? { type: r.deal_type as DealTerms["type"], value: r.deal_value === null || r.deal_value === undefined ? null : Number(r.deal_value), variantId: (r.deal_variant_id as string | null) ?? null, note: (r.deal_note as string | null) ?? null }
+    : null,
 });
 
 /** Every saved lead, newest changes first. */
@@ -1160,6 +1171,19 @@ export async function getLeads(): Promise<{ leads: Lead[]; sample: boolean }> {
     for (const l of leads) {
       const c = (cards ?? []).find((x) => x.lead_id === l.id);
       if (c) l.idea = { why: c.why as string, dealIdea: c.deal_idea as string };
+    }
+    // Or from Home's weekly matches / onboarding's picks.
+    const noIdea = leads.filter((l) => !l.idea);
+    if (noIdea.length) {
+      const { data: matches } = await supabase()
+        .from("partner_matches")
+        .select("lead_id, why, deal_idea")
+        .in("lead_id", noIdea.map((l) => l.id))
+        .order("created_at", { ascending: false });
+      for (const l of noIdea) {
+        const m = (matches ?? []).find((x) => x.lead_id === l.id);
+        if (m) l.idea = { why: m.why as string, dealIdea: m.deal_idea as string };
+      }
     }
   }
   return { leads, sample: false };
@@ -1195,7 +1219,7 @@ export async function findLeadEmail(leadId: string): Promise<LeadResult> {
 }
 
 /** Second writes the email. The owner reads it, edits it, and sends it themselves. */
-export async function draftOutreachEmail(leadId: string, goal: string): Promise<OutreachDraftResult> {
+export async function draftOutreachEmail(leadId: string, goal: string, followUp = false): Promise<OutreachDraftResult> {
   if (await isDemo()) {
     const lead = demoList().find((l) => l.id === leadId);
     if (!lead) return { ok: false, message: "This is a demo." };
@@ -1203,7 +1227,7 @@ export async function draftOutreachEmail(leadId: string, goal: string): Promise<
     const updated = demoUpdate(leadId, { draftSubject: d.subject, draftBody: d.body, status: lead.status === "new" || lead.status === "email_found" ? "drafted" : lead.status })!;
     return { ok: true, ...d, lead: updated, usage: DEMO_USAGE };
   }
-  const res = await outreachRequest({ action: "draft", leadId, goal: goal.slice(0, OUTREACH_LIMITS.goalMaxChars) });
+  const res = await outreachRequest({ action: "draft", leadId, goal: goal.slice(0, OUTREACH_LIMITS.goalMaxChars), followUp });
   return res.status === "draft" ? { ok: true, subject: res.subject, body: res.body, lead: res.lead, usage: res.usage } : { ok: false, message: errorOf(res) };
 }
 
@@ -1226,6 +1250,7 @@ export async function addManualLead(input: { name: string; website: string; emai
 /** "Remove" on the Outreach page: takes it off the list. The business stays in the 30-day cache
  *  (chat can still suggest it, and Save to Outreach puts it back with its email, notes and draft). */
 export async function removeFromOutreach(leadId: string): Promise<boolean> {
+  forgetReplyCount();
   if (await isDemo()) {
     demoLeads = demoList().filter((l) => l.id !== leadId);
     return true;
@@ -1235,8 +1260,129 @@ export async function removeFromOutreach(leadId: string): Promise<boolean> {
 }
 
 /** "Save to Outreach" on a chat card: puts that business (and any email found) in the Outreach list. */
+// ---------- Partners pipeline (found -> emailed -> replied -> deal) ----------
+// The owner moves a business along by hand. Second never sends anything.
+
+const FOLLOW_UP_DAYS = 5;
+
+/** Move a business to a stage. Keeps the old status in step so older screens still agree. */
+export async function setPartnerStage(leadId: string, stage: PartnerStage): Promise<boolean> {
+  forgetReplyCount();
+  const now = new Date();
+  const changes: Partial<Lead> = { stage, saved: true };
+  const row: Record<string, unknown> = { stage, saved: true, updated_at: now.toISOString() };
+  if (stage === "emailed") {
+    const follow = new Date(now.getTime() + FOLLOW_UP_DAYS * 86_400_000);
+    const followUpOn = `${follow.getFullYear()}-${String(follow.getMonth() + 1).padStart(2, "0")}-${String(follow.getDate()).padStart(2, "0")}`;
+    Object.assign(changes, { status: "contacted", emailedAt: now.toISOString(), followUpOn });
+    Object.assign(row, { status: "contacted", emailed_at: now.toISOString(), follow_up_on: followUpOn });
+  } else if (stage === "replied") {
+    Object.assign(changes, { status: "replied", repliedAt: now.toISOString() });
+    Object.assign(row, { status: "replied", replied_at: now.toISOString() });
+  } else if (stage === "deal") {
+    Object.assign(changes, { status: "replied", dealAt: now.toISOString() });
+    Object.assign(row, { status: "replied", deal_at: now.toISOString() });
+  } else {
+    Object.assign(changes, { status: "new" });
+    Object.assign(row, { status: "new" });
+  }
+  if (await isDemo()) {
+    demoUpdate(leadId, changes);
+    return true;
+  }
+  const { error } = await supabase().from("outreach_leads").update(row).eq("id", leadId);
+  return !error;
+}
+
+/** "Not interested": out of the pipeline, still listed under "Not interested (N)". */
+export async function setNotInterested(leadId: string, notInterested: boolean): Promise<boolean> {
+  forgetReplyCount();
+  const status: LeadStatus = notInterested ? "not_interested" : "new";
+  return updateLead(leadId, { status });
+}
+
+/** Save a deal and move the business to the Deal stage. Checked here and again by the database. */
+export async function saveDeal(leadId: string, deal: DealTerms): Promise<{ ok: true } | { ok: false; message: string }> {
+  forgetReplyCount();
+  const value = deal.value === null ? null : Math.round(deal.value * 100) / 100;
+  if (deal.type === "percent" && (value === null || value < 0 || value > 100)) return { ok: false, message: "A percent off goes from 0 to 100." };
+  if (deal.type === "amount_off" && (value === null || value < 0 || value > 10_000)) return { ok: false, message: "Dollars off goes from $0 to $10,000." };
+  if (deal.type === "custom" && !deal.note?.trim()) return { ok: false, message: "Write the deal in a few words." };
+  const note = deal.note?.trim().slice(0, 200) || null;
+  const clean: DealTerms = { type: deal.type, value: deal.type === "custom" ? null : value, variantId: deal.type === "custom" ? null : deal.variantId, note };
+  if (await isDemo()) {
+    demoUpdate(leadId, { deal: clean, stage: "deal", saved: true, dealAt: new Date().toISOString() });
+    return { ok: true };
+  }
+  const { error } = await supabase()
+    .from("outreach_leads")
+    .update({ deal_type: clean.type, deal_value: clean.value, deal_variant_id: clean.variantId, deal_note: clean.note, stage: "deal", status: "replied", saved: true, deal_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", leadId);
+  return error ? { ok: false, message: "We couldn't save that deal. Please try again." } : { ok: true };
+}
+
+/** How many partners replied and are waiting on the owner (the blue badge). */
+// Remembered for a minute (and forgotten when a stage changes), so the data refresh after every
+// save stays instant: it's the only part of loadAll that would otherwise ask the database.
+let replyCount: { userId: string; n: number; at: number } | null = null;
+const forgetReplyCount = () => {
+  replyCount = null;
+};
+/** After a partner moves stage: refresh the blue badge. */
+export function partnersChanged() {
+  forgetReplyCount();
+  notify();
+}
+
+export async function getPartnerReplyCount(): Promise<number> {
+  if (await isDemo()) return demoList().filter((l) => l.saved !== false && l.stage === "replied" && l.status !== "not_interested").length;
+  const user = await currentUser();
+  if (!user) return 0;
+  if (replyCount && replyCount.userId === user.id && Date.now() - replyCount.at < 60_000) return replyCount.n;
+  const { count, error } = await supabase().from("outreach_leads").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("saved", true).eq("stage", "replied").neq("status", "not_interested");
+  const n = error ? 0 : (count ?? 0);
+  replyCount = { userId: user.id, n, at: Date.now() };
+  return n;
+}
+
+// ---------- "Your matches this week" ----------
+
+export type MatchesResult = { ok: true; matches: Match[]; center: { lat: number; lon: number } | null; stale: boolean } | { ok: false };
+
+/**
+ * This week's matches. Made once a week on the server (the first time Home or onboarding asks);
+ * if another tab is making them right now, wait for that one. Never throws: { ok: false } means
+ * "show the Find partners button".
+ */
+export async function getWeeklyMatches(source: "weekly" | "onboarding" = "weekly", maxWaitMs = 60_000): Promise<MatchesResult> {
+  if (await isDemo()) return { ok: true, matches: sampleMatches(), center: null, stale: false };
+  const { data } = await supabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return { ok: false };
+  const ask = async (): Promise<MatchesResponse> => {
+    try {
+      const res = await fetch("/api/matches", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ action: "get", timeZone: deviceTimeZone(), source }) });
+      return (await res.json()) as MatchesResponse;
+    } catch {
+      return { status: "error", message: "" };
+    }
+  };
+  const until = Date.now() + maxWaitMs;
+  let res = await ask();
+  while (res.status === "pending" && Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 2500));
+    res = await ask();
+  }
+  return res.status === "ready" ? { ok: true, matches: res.matches, center: res.center, stale: res.stale } : { ok: false };
+}
+
 export async function saveLeadToOutreach(leadId: string): Promise<{ ok: true; already: boolean } | { ok: false; message: string }> {
-  if (await isDemo()) return { ok: true, already: false };
+  if (await isDemo()) {
+    if (demoList().some((l) => l.id === leadId)) return { ok: true, already: true };
+    const m = sampleMatches().find((x) => x.lead.id === leadId);
+    if (m) demoLeads = [{ ...m.lead, saved: true, idea: { why: m.why, dealIdea: m.dealIdea } }, ...demoList()];
+    return { ok: true, already: false };
+  }
   const { data, error } = await supabase().from("outreach_leads").select("saved").eq("id", leadId).maybeSingle();
   if (error || !data) return { ok: false, message: "We couldn't find that business anymore. It may have been removed." };
   if (data.saved) return { ok: true, already: true };
@@ -1319,6 +1465,11 @@ export async function getTransactions(): Promise<Transaction[]> {
 export async function addTransaction(transaction: Omit<Transaction, "id">): Promise<Transaction> {
   // From the parts (price x quantity - discount + tip). The database works out the same total
   // itself and never trusts this one; this is just so the screen is right straight away.
+  if (transaction.partnerLeadId && transaction.unitPrice !== undefined) {
+    // From a partner: the deal sets the discount (the database does this itself and wins).
+    const partner = (await isDemo()) ? demoList().find((l) => l.id === transaction.partnerLeadId) : null;
+    if (partner) transaction = { ...transaction, discount: dealDiscount(partner.deal, { unitPrice: transaction.unitPrice, quantity: transaction.quantity ?? 1, variantId: transaction.variantId ?? "" }) };
+  }
   const amount = transaction.unitPrice !== undefined ? entryTotal({ unitPrice: transaction.unitPrice, quantity: transaction.quantity, discount: transaction.discount, tip: transaction.tip }) : transaction.amount;
   const saved = { ...transaction, amount, id: newId() };
   await change((b) => b.addTransaction(saved));

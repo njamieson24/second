@@ -1,21 +1,22 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { MessageCircle, Plus } from "lucide-react";
+import { AddMoneyDialog } from "@/components/AddMoneyDialog";
 import { Button } from "@/components/Button";
 import { TodaySchedule } from "@/components/calendar/TodaySchedule";
 import { Card } from "@/components/Card";
-import { Chip } from "@/components/Chip";
-import { ChartEmptyNote, ComingSoon, SampleTag } from "@/components/EmptyStates";
 import { PageBody, PageHeader } from "@/components/PageHeader";
-import { StatTile } from "@/components/StatTile";
+import { MatchesSection, PartnerProgress } from "@/components/partners/Matches";
 import { TextLink } from "@/components/TextLink";
 import { ThisWeek } from "@/components/ThisWeek";
-import { TipCard } from "@/components/TipCard";
 import { TourOffer } from "@/components/TourOffer";
+import { capital, familyOf } from "@/lib/business-kinds";
 import { useLoadedData } from "@/lib/data";
-import { currentMonthKey, greeting, longDate, monthName, shiftMonth, todayISO, toISODate } from "@/lib/dates";
-import { ideas, newReplies } from "@/lib/demo-content";
-import { changeFromLastMonth, formatMoney, keptHistory, monthTotals } from "@/lib/money";
+import { greeting, longDate, todayISO, toISODate } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
+import type { Lead } from "@/lib/outreach";
+import { getLeads } from "@/lib/store";
 
 /** Monday of this week, as YYYY-MM-DD. */
 function weekStartISO(): string {
@@ -24,21 +25,28 @@ function weekStartISO(): string {
   return toISODate(d);
 }
 
+// Home (Running): partners first. Your matches this week, then what you've done with partners,
+// then This Week's 3 tasks and money this week. The matches load on their own (a skeleton
+// first), so nothing on the page waits for the search.
 export default function DashboardPage() {
-  const { business, transactions, showSamples } = useLoadedData();
-  const month = currentMonthKey();
-  const totals = monthTotals(transactions, month);
-  const lastKept = monthTotals(transactions, shiftMonth(month, -1)).kept;
-  const history = keptHistory(transactions, month);
-  const maxKept = Math.max(1, ...history.map((h) => h.kept));
-  const hasMoney = totals.transactions.length > 0;
-  const hasAnyHistory = history.some((h) => h.kept !== 0);
+  const { business, transactions } = useLoadedData();
+  const words = familyOf(business.type).words;
+  const [leads, setLeads] = useState<Lead[] | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getLeads().then((r) => live && setLeads(r.leads));
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const weekStart = weekStartISO();
   const today = todayISO();
   const thisWeek = transactions.filter((t) => t.date >= weekStart && t.date <= today && t.kind === "income");
   const earnedThisWeek = thisWeek.reduce((s, t) => s + t.amount, 0);
-  const goalPercent = business.payGoal > 0 ? Math.max(0, Math.round((totals.kept / business.payGoal) * 100)) : 0;
+  const fromPartners = thisWeek.filter((t) => t.partnerLeadId).reduce((s, t) => s + t.amount, 0);
 
   return (
     <PageBody>
@@ -54,154 +62,44 @@ export default function DashboardPage() {
 
       <TourOffer mode="running" />
 
+      <PartnerProgress leads={leads} transactions={transactions} />
+
+      <MatchesSection />
+
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <ThisWeek />
 
-        <Card
-          title="Money this month"
-          aside={<span className="text-[13px] text-muted">{monthName(month)}</span>}
-          padding="lg"
-          className="flex flex-col"
-        >
-          <div className="mt-3.5 text-sm text-muted">You kept</div>
-          <div className="text-[44px] leading-[1.1] font-semibold tracking-[-1px]">{formatMoney(totals.kept)}</div>
-          <div className="mt-2">
-            {hasMoney ? (
-              <Chip tone={totals.kept >= lastKept ? "mint" : "neutral"} weight="medium">
-                {changeFromLastMonth(totals.kept, lastKept, monthName(shiftMonth(month, -1)))}
-              </Chip>
-            ) : (
-              <span className="text-sm text-muted">Nothing logged yet this month.</span>
-            )}
-          </div>
-          <div className="relative mt-5">
-            <div className="grid h-24 grid-cols-6 items-end gap-2.5 border-b border-line" aria-hidden="true">
-              {history.map((h, i) => {
-                const last = i === history.length - 1;
-                const prev = i === history.length - 2;
-                return h.kept > 0 ? (
-                  <div
-                    key={h.key}
-                    className={`rounded-[6px_6px_2px_2px] ${last ? "bg-mint" : prev ? "bg-sky" : "bg-sky-tint"}`}
-                    style={{ height: `${(h.kept / maxKept) * 100}%` }}
-                  />
-                ) : (
-                  <div key={h.key} />
-                );
-              })}
-            </div>
-            {!hasAnyHistory && <ChartEmptyNote text="Your monthly totals will show here." />}
-          </div>
-          <div className="mt-1.5 grid grid-cols-6 gap-2.5 text-center text-xs text-muted" aria-hidden="true">
-            {history.map((h, i) => (
-              <span key={h.key} className={i === history.length - 1 ? "font-semibold text-mint-deep" : ""}>
-                {monthName(h.key, "short")}
-              </span>
-            ))}
-          </div>
-          <p className="sr-only">
-            What you kept each month: {history.map((h) => `${monthName(h.key)} ${formatMoney(h.kept)}`).join(", ")}.
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3 border-t border-line-soft pt-3.5 text-sm">
+        <Card title="Money this week" padding="lg" className="flex flex-col desk:self-start" tourId="money-week">
+          <dl className="mt-3 mb-0 flex flex-col gap-3">
             <div>
-              <span className="text-muted">Earned </span>
-              <span className="font-semibold">{formatMoney(totals.earned)}</span>
+              <dt className="text-sm text-muted">Earned</dt>
+              <dd className="m-0 text-[40px] leading-[1.1] font-semibold tracking-[-1px] tabular-nums">{formatMoney(earnedThisWeek)}</dd>
             </div>
-            <div>
-              <span className="text-muted">Spent </span>
-              <span className="font-semibold">{formatMoney(totals.spent)}</span>
+            <div className="flex flex-wrap gap-x-6 gap-y-2 border-t border-line-soft pt-3 text-[15px]">
+              <div>
+                <dt className="inline text-muted">From partners </dt>
+                <dd className="inline font-semibold text-mint-deep tabular-nums">{formatMoney(fromPartners)}</dd>
+              </div>
+              <div>
+                <dt className="inline text-muted">{capital(words.visits)} </dt>
+                <dd className="inline font-semibold tabular-nums">{thisWeek.length}</dd>
+              </div>
             </div>
-            {hasMoney ? (
-              <TextLink href="/app/money" className="ml-auto">
-                Details
-              </TextLink>
-            ) : (
-              <Button href="/app/money" size="sm" className="ml-auto" icon={<Plus size={16} aria-hidden="true" />}>
-                Add money in or out
-              </Button>
-            )}
+          </dl>
+          <div className="mt-auto flex flex-wrap items-center gap-3 pt-5">
+            <Button size="sm" onClick={() => setAdding(true)} icon={<Plus size={16} aria-hidden="true" />}>
+              Log income
+            </Button>
+            <TextLink href="/app/money" className="ml-auto">
+              All your money
+            </TextLink>
           </div>
         </Card>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 desk:grid-cols-4">
-        <StatTile
-          label="Payments this week"
-          value={String(thisWeek.length)}
-          note={thisWeek.length === 0 ? "None yet" : undefined}
-          inlineNote
-        />
-        <StatTile label="Earned this week" value={formatMoney(earnedThisWeek)} inlineNote />
-        <StatTile label="Spent this month" value={formatMoney(totals.spent)} inlineNote />
-        <StatTile
-          label="Toward your pay goal"
-          value={`${goalPercent}%`}
-          note={`of ${formatMoney(business.payGoal)}`}
-          noteGood={goalPercent >= 100}
-          inlineNote
-        />
-      </div>
+      <TodaySchedule />
 
-      <div className="grid grid-cols-1 gap-6 desk:grid-cols-3">
-        {showSamples ? (
-          <Card title="New replies" aside={<SampleTag />}>
-            <ul className="mt-2 mb-0 list-none p-0">
-              {newReplies.map((r, i) => (
-                <li
-                  key={r.name}
-                  className={`flex gap-3 ${i === newReplies.length - 1 ? "pt-3" : "border-b border-line-soft py-3"}`}
-                >
-                  <div
-                    className={`flex size-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
-                      r.tone === "mint" ? "bg-mint-tint text-mint-deep" : "bg-sky-tint text-sky-ink"
-                    }`}
-                    aria-hidden="true"
-                  >
-                    {r.initials}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex justify-between gap-2">
-                      <span className="text-[15px] font-medium">{r.name}</span>
-                      <span className="text-xs text-muted">{r.when}</span>
-                    </div>
-                    <div className="text-sm text-muted">{r.text}</div>
-                    {r.chip && (
-                      <Chip tone="mint" size="sm" className="mt-1.5">
-                        {r.chip}
-                      </Chip>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        ) : (
-          <ComingSoon
-            title="New replies"
-            text="When local businesses answer the emails Second sends for you, their replies will show up here."
-          />
-        )}
-
-        <TodaySchedule />
-
-        {showSamples ? (
-          <TipCard title="Ideas from Second" withMark className="flex flex-col gap-3">
-            <div>
-              <SampleTag />
-            </div>
-            {ideas.map((idea) => (
-              <div key={idea.lead} className="rounded-[14px] bg-card px-3.5 py-3 text-sm leading-[1.45] text-mint-heading">
-                <span className="font-semibold">{idea.lead}</span> {idea.text}
-              </div>
-            ))}
-          </TipCard>
-        ) : (
-          <ComingSoon
-            title="Ideas from Second"
-            text="Second will look at your numbers and suggest simple ways to earn more, like a holiday special."
-          />
-        )}
-      </div>
+      <AddMoneyDialog kind={adding ? "income" : null} incomeCategory={capital(words.visit)} onClose={() => setAdding(false)} />
     </PageBody>
   );
 }

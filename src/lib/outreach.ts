@@ -112,7 +112,52 @@ export type Lead = {
   saved?: boolean;
   /** Second's idea from the chat card it was saved from (newest card) */
   idea?: { why: string; dealIdea: string } | null;
+  // ---------- Partners pipeline (supabase/partners.sql) ----------
+  /** found -> emailed -> replied -> deal. "Not interested" is status = not_interested. */
+  stage?: PartnerStage;
+  emailedAt?: string | null;
+  /** YYYY-MM-DD */
+  followUpOn?: string | null;
+  repliedAt?: string | null;
+  dealAt?: string | null;
+  deal?: DealTerms | null;
+  /** Where it is (public map data), for onboarding's little map */
+  lat?: number | null;
+  lon?: number | null;
 };
+
+export type PartnerStage = "found" | "emailed" | "replied" | "deal";
+export const PARTNER_STAGES: { id: PartnerStage; label: string }[] = [
+  { id: "found", label: "Found" },
+  { id: "emailed", label: "Emailed" },
+  { id: "replied", label: "Replied" },
+  { id: "deal", label: "Deal" },
+];
+
+/**
+ * A partner deal: percent off, dollars off, or something custom (no automatic discount).
+ * Optional: only one catalog option. The database works out the discount from these (never
+ * from the browser), never below $0.
+ */
+export type DealTerms = { type: "percent" | "amount_off" | "custom"; value: number | null; variantId: string | null; note: string | null };
+
+/** The deal discount for one entry (preview only: the database does the real sum). */
+export function dealDiscount(deal: DealTerms | null | undefined, entry: { unitPrice: number; quantity: number; variantId: string }): number {
+  if (!deal || deal.value === null || deal.type === "custom") return 0;
+  if (deal.variantId && deal.variantId !== entry.variantId) return 0;
+  const base = entry.unitPrice * entry.quantity;
+  const off = deal.type === "percent" ? (base * Math.min(Math.max(deal.value, 0), 100)) / 100 : Math.max(deal.value, 0) * entry.quantity;
+  return Math.round(Math.min(off, base) * 100) / 100;
+}
+
+/** "15% off" / "$15 off Deep tissue, 60 min" / their own words */
+export function dealText(deal: DealTerms | null | undefined, optionName?: string | null): string {
+  if (!deal) return "";
+  const on = optionName ? ` ${optionName}` : "";
+  if (deal.type === "percent" && deal.value !== null) return `${deal.value}% off${on}`.trim();
+  if (deal.type === "amount_off" && deal.value !== null) return `$${deal.value % 1 ? deal.value.toFixed(2) : deal.value} off${on}`.trim();
+  return deal.note ?? "Custom deal";
+}
 
 export type OutreachUsage = { lookupsLeft: number; draftsLeft: number; searchesLeft: number };
 

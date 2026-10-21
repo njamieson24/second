@@ -15,7 +15,7 @@ import { useLoadedData } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
 import { chat, type ChatMessage } from "@/lib/demo-content";
 import { formatMoney } from "@/lib/money";
-import { approveProposal, getChatHistory, ignoreProposal, refreshNotes, sendChatMessage } from "@/lib/store";
+import { approveProposal, getChatHistory, getLeads, ignoreProposal, refreshNotes, sendChatMessage } from "@/lib/store";
 import { withName } from "@/lib/text";
 
 const modes: Mode[] = ["launch", "running"];
@@ -71,6 +71,30 @@ function LiveChat() {
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const sentThisVisit = useRef(0);
+  // "Help me reply" on Partners: that business goes along with every message this visit.
+  const [replyTo, setReplyTo] = useState<{ id: string; name: string } | null>(null);
+
+  // Opened with ?ask=... (Find more) or ?reply=<business> (Help me reply): start the message for them.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ask = params.get("ask")?.slice(0, 300);
+    const reply = params.get("reply");
+    if (!ask && !reply) return;
+    window.history.replaceState(null, "", "/chat");
+    let live = true;
+    if (ask) queueMicrotask(() => live && setDraft(ask));
+    if (reply)
+      getLeads().then(({ leads }) => {
+        const lead = leads.find((l) => l.id === reply);
+        if (!live || !lead) return;
+        setReplyTo({ id: lead.id, name: lead.name });
+        setDraft(`Help me reply to ${lead.name}. Here's what they said: `);
+        inputRef.current?.focus();
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     let live = true;
@@ -116,7 +140,7 @@ function LiveChat() {
       // An email found in chat also shows on any earlier card for the same business.
       onCardEmail: (leadId, email, emailSource) =>
         setMessages((m) => m.map((x) => ({ ...x, businessCards: x.businessCards.map((c) => (c.leadId === leadId ? { ...c, email, emailSource } : c)) }))),
-    });
+    }, { leadId: replyTo?.id });
     update((x) => ({ ...x, status: undefined }));
     setSending(false);
     if (result.ok) {
@@ -232,7 +256,7 @@ function LiveChat() {
         <div ref={endRef} />
       </div>
 
-      <div className="sticky bottom-0 mx-auto w-full max-w-[760px] bg-paper pt-2 pb-4 desk:pb-6">
+      <div className="sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom))] mx-auto w-full max-w-[760px] bg-paper pt-2 pb-4 desk:bottom-0 desk:pb-6">
         {empty && mode && (
           <div className="mb-2.5 flex flex-wrap gap-2">
             {STARTERS[mode].map((s) => (
@@ -245,6 +269,16 @@ function LiveChat() {
                 {s}
               </button>
             ))}
+          </div>
+        )}
+        {replyTo && (
+          <div className="mb-2.5 flex flex-wrap items-center gap-2 rounded-row bg-sky-tint px-3.5 py-1 text-sm text-sky-ink">
+            <span className="py-2">
+              Replying to <span className="font-semibold">{replyTo.name}</span>. Paste what they said, and Second will help you answer.
+            </span>
+            <button type="button" onClick={() => setReplyTo(null)} className="ml-auto min-h-11 rounded-full px-3 font-medium underline">
+              Stop
+            </button>
           </div>
         )}
         <form
@@ -379,7 +413,7 @@ function DemoConversation() {
           <Message key={i} msg={{ ...msg, text: withName(msg.text, business.ownerName) }} />
         ))}
       </div>
-      <div className="sticky bottom-0 mx-auto w-full max-w-[760px] bg-paper pt-2 pb-4 desk:pb-6">
+      <div data-tour="chat-box" className="sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom))] mx-auto w-full max-w-[760px] bg-paper pt-2 pb-4 desk:bottom-0 desk:pb-6">
         <div className="flex flex-col items-start gap-3 rounded-card border border-line bg-card p-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="m-0 text-[15px] leading-normal">
             This is a sample. Make a free account to chat with Second about your own business.

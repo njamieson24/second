@@ -40,6 +40,7 @@ import {
   CHAT_OUTREACH_RULES,
   CHAT_RESULTS_SHOWN,
   partnerHint,
+  partnerReplyBlock,
   checkFindArgs,
   checkPicks,
   clean,
@@ -51,7 +52,7 @@ import {
   type Labeled,
   type Pick,
 } from "@/lib/chat-outreach";
-import { categoryLabel } from "@/lib/outreach";
+import { categoryLabel, dealText } from "@/lib/outreach";
 import { checkWebsites, findEmailForLead, runSearch, toLead, type LeadRow } from "@/lib/outreach-server";
 import { toBusiness, toEvent, toMoneyPlan, toTransaction, type BusinessRow, type EventRow, type MoneyPlanRow, type TransactionRow } from "@/lib/db-rows";
 import { servicesFromCatalog } from "@/lib/catalog";
@@ -162,7 +163,9 @@ export async function POST(request: Request) {
   if (!user) return reply(401, { type: "error", message: "Please log in again to chat with Second." });
 
   // ---------- What they asked ----------
-  const body = (await request.json().catch(() => ({}))) as { message?: unknown; timeZone?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { message?: unknown; timeZone?: unknown; aboutLeadId?: unknown };
+  // "Help me reply" on Partners: which business (only ever one of their own, read AS them).
+  const aboutLeadId = typeof body.aboutLeadId === "string" && /^[0-9a-f-]{36}$/i.test(body.aboutLeadId) ? body.aboutLeadId : null;
   const message = typeof body.message === "string" ? body.message.trim() : "";
   if (!message) return reply(400, { type: "error", message: "Please type a message first." });
   if (message.length > CHAT_MAX_CHARS)
@@ -282,11 +285,19 @@ export async function POST(request: Request) {
     ...(emailAllowed ? [EMAIL_TOOL] : []),
   ];
   const rules = [SECOND_PERSONA, memoryReady ? TOOL_RULES : "", outreachReady ? CHAT_OUTREACH_RULES : ""].filter(Boolean).join("\n\n");
+  let replyBlock = "";
+  if (aboutLeadId && outreachReady) {
+    const { data: row } = await db.from("outreach_leads").select("*").eq("id", aboutLeadId).eq("user_id", user.id).maybeSingle();
+    if (row) {
+      const lead = toLead(row as LeadRow);
+      replyBlock = partnerReplyBlock(lead, dealText(lead.deal));
+    }
+  }
   const system: Anthropic.Beta.BetaTextBlockParam[] = [
     { type: "text", text: rules },
     {
       type: "text",
-      text: [context, memoryReady ? catalogContext(sold) : "", notesContext(notes), proposalsContext(recentCards), outreachReady ? partnerHint(business) : "", recentCardsBlock(recent)]
+      text: [context, memoryReady ? catalogContext(sold) : "", notesContext(notes), proposalsContext(recentCards), outreachReady ? partnerHint(business) : "", recentCardsBlock(recent), replyBlock]
         .filter(Boolean)
         .join("\n\n"),
     },
@@ -378,7 +389,7 @@ export async function POST(request: Request) {
                       : r.reason === "town"
                         ? `Couldn't find the town "${clean(args.town, 60)}". Ask them to check the town and state.`
                         : r.message;
-                  results.push(result(`${why} Tell them kindly, and that they can try again in a minute or use the Outreach page. Don't name or make up any businesses.`, true));
+                  results.push(result(`${why} Tell them kindly, and that they can try again in a minute or ask again from the Partners page (Find more). Don't name or make up any businesses.`, true));
                 } else {
                   searched = r.leads.slice(0, CHAT_RESULTS_SHOWN).map((lead, n) => ({ label: `B${n + 1}`, lead }));
                   results.push(result(resultsBlock(searched, where)));

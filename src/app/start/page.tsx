@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Check, Sprout, Store } from "lucide-react";
 import { Button } from "@/components/Button";
 import { Logo } from "@/components/Logo";
@@ -43,6 +44,7 @@ export default function StartPage() {
 
 function ModePicker() {
   const { setMode } = useMode();
+  const router = useRouter();
   const demo = useAppData()?.account?.kind === "demo";
 
   return (
@@ -88,7 +90,15 @@ function ModePicker() {
                 ))}
               </ul>
               <div>
-                <Button href={c.href} variant={dark ? "mint" : "primary"} arrow onClick={() => setMode(c.mode)}>
+                <Button
+                  variant={dark ? "mint" : "primary"}
+                  arrow
+                  onClick={async () => {
+                    // Save the mode first: setup sends you back here if it doesn't see one yet.
+                    await setMode(c.mode);
+                    router.push(c.href);
+                  }}
+                >
                   {c.action}
                 </Button>
               </div>

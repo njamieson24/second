@@ -36,7 +36,7 @@ export function AppShell({
           className={`hidden desk:sticky desk:top-0 desk:flex desk:h-screen desk:overflow-y-auto ${onlyClass(m)}`}
         />
       ))}
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1 pb-[calc(4.25rem+env(safe-area-inset-bottom))] desk:pb-0">
         <DemoNotice />
         {children}
       </main>

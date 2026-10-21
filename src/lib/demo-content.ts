@@ -16,6 +16,7 @@ import { servicesFromCatalog, type CatalogItem } from "./catalog";
 import type { CatalogDraft } from "./catalog-extract";
 import type { ContentPost, ContentWeek } from "./content";
 import { OPT_OUT_LINE, type Lead } from "./outreach";
+import type { Match } from "./matches";
 import { addDaysToKey, dateKeyIn, zonedToDate } from "./timezone";
 
 // ---------- Maria's sample business (real-looking saved data) ----------
@@ -161,6 +162,8 @@ export function buildDemoAccount(today: Date = new Date(), timeZone?: string): D
         amount,
         label: `${s.name}, ${CLIENTS[(n + i) % CLIENTS.length]}`,
         category: "Session",
+        // The last two months: some visits came from the sample partner (Fictional Fitness Club).
+        ...(back <= 1 && n % 4 === 3 ? { partnerLeadId: DEMO_PARTNER_ID } : {}),
       });
       total += amount;
       n += 1;
@@ -231,7 +234,7 @@ export const gamePlan = {
       title: "Email 12 gyms and yoga studios about a chair massage day",
       detail: "Each email is written and personalized",
       action: "Review and send",
-      href: "/outreach",
+      href: "/partners",
       primary: true,
     },
     {
@@ -431,6 +434,15 @@ export const ideas = [
  * Outreach for the demo: MADE-UP businesses with example.com emails. Not real places or real
  * contact info. The demo never searches the map, looks anything up, or calls the AI.
  */
+const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+const dateIn = (n: number) => {
+  const d = new Date(Date.now() + n * 86_400_000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+/** The demo's partner deal (Fictional Fitness Club). Some sample income is tagged with it. */
+export const DEMO_PARTNER_ID = "sample-lead-7";
+
 export function sampleLeads(): Lead[] {
   const base = { source: "osm" as const, town: "Sample Town, NJ", address: null, phone: null, instagram: null, facebook: null, contactPage: null, note: null, draftSubject: null, draftBody: null, emailCheckedAt: null };
   const lead = (id: string, category: string, name: string, extra: Partial<Lead> = {}): Lead => ({
@@ -457,8 +469,24 @@ export function sampleLeads(): Lead[] {
         dealIdea: "A pop-up chair massage corner on Saturday mornings after the 9am class. You split what you make with the studio, say 80/20, and they hand out your card.",
       },
     }),
-    lead("2", "gyms", "Make-Believe Fitness (sample)", { email: "info@example.com", emailSource: "https://www.example.com/contact", status: "contacted", note: "Sent Monday. Follow up next week." }),
-    lead("3", "gyms", "Imaginary Yoga Loft (sample)", { email: "studio@example.com", emailSource: "https://www.example.com/about", status: "replied", note: "Wants to talk about a recovery day in May." }),
+    lead("2", "gyms", "Make-Believe Fitness (sample)", {
+      email: "info@example.com",
+      emailSource: "https://www.example.com/contact",
+      status: "contacted",
+      stage: "emailed",
+      emailedAt: daysAgo(3),
+      followUpOn: dateIn(2),
+      note: "Sent Monday. Follow up next week.",
+    }),
+    lead("3", "gyms", "Imaginary Yoga Loft (sample)", { email: "studio@example.com", emailSource: "https://www.example.com/about", status: "replied", stage: "replied", repliedAt: daysAgo(1), note: "Wants to talk about a recovery day in May." }),
+    lead("7", "gyms", "Fictional Fitness Club (sample)", {
+      email: "club@example.com",
+      emailSource: "openstreetmap",
+      status: "replied",
+      stage: "deal",
+      dealAt: daysAgo(20),
+      deal: { type: "percent", value: 15, variantId: null, note: "15% off any massage for club members" },
+    }),
     lead("4", "cafes", "Sample Street Café (sample)"),
     lead("5", "cafes", "Example Bean Coffee (sample)", { email: "coffee@example.com", emailSource: "openstreetmap", status: "email_found" }),
     lead("6", "salons", "Placeholder Hair Studio (sample)", { status: "not_interested", email: "salon@example.com", emailSource: "added by you", source: "manual" }),
@@ -595,4 +623,51 @@ export function sampleCatalogDraft(catalog: CatalogItem[]): CatalogDraft {
     questions: [{ question: "You mentioned couples massage. What do you charge for it, and how long is it? (sample)", source: { kind: "note", text: "Thinking about adding couples massage (sample)." } }],
     dropped: 0,
   };
+}
+
+/** "Your matches this week" in the demo: made-up businesses (example.com), no AI, no map search. */
+export function sampleMatches(): Match[] {
+  const lead = (id: string, category: string, name: string, distanceMi: number): Lead => ({
+    id: `sample-match-${id}`,
+    source: "osm",
+    town: "Sample Town, NJ",
+    category,
+    name,
+    address: null,
+    website: "https://www.example.com",
+    phone: null,
+    email: null,
+    emailSource: null,
+    contactPage: null,
+    instagram: null,
+    facebook: null,
+    status: "new",
+    note: null,
+    draftSubject: null,
+    draftBody: null,
+    emailCheckedAt: null,
+    saved: false,
+    stage: "found",
+    distanceMi,
+  });
+  return [
+    {
+      id: "m1",
+      lead: lead("1", "gyms", "Pretend Boxing Gym (sample)", 0.8),
+      why: "Boxers finish a hard class with sore shoulders and backs, and the gym gets something extra to keep members around.",
+      dealIdea: "A chair massage table there on Saturday mornings after class: 15 minutes for members, and you split what you make 80/20 with the gym.",
+    },
+    {
+      id: "m2",
+      lead: lead("2", "hotels", "Make-Believe Inn (sample)", 1.4),
+      why: "Inn guests are on a beach weekend and want to relax, and the inn gets a nice extra to offer.",
+      dealIdea: "Put your Swedish massage ($95) on the inn's guest list, with in-room visits on weekends.",
+    },
+    {
+      id: "m3",
+      lead: lead("3", "salons", "Example Hair Studio (sample)", 2.1),
+      why: "Brides book hair, then want to relax before the big day.",
+      dealIdea: "A pre-wedding package: the salon refers brides to you, and you refer clients who ask about hair.",
+    },
+  ];
 }

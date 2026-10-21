@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       case "find_email":
         return await findEmail(db, user.id, text(body.leadId, 40));
       case "draft":
-        return await draft(db, user.id, business, text(body.leadId, 40), text(body.goal, OUTREACH_LIMITS.goalMaxChars));
+        return await draft(db, user.id, business, text(body.leadId, 40), text(body.goal, OUTREACH_LIMITS.goalMaxChars), body.followUp === true);
       case "add_manual":
         return await addManual(db, user.id, body);
       default:
@@ -89,7 +89,7 @@ async function findEmail(db: SupabaseClient, userId: string, leadId: string) {
 
 // ---------- 3. Draft the email (the owner sends it) ----------
 
-async function draft(db: SupabaseClient, userId: string, business: Business, leadId: string, goal: string) {
+async function draft(db: SupabaseClient, userId: string, business: Business, leadId: string, goal: string, followUp = false) {
   if (!process.env.ANTHROPIC_API_KEY) return fail("Drafts aren't working right now. Please try again later.", 500);
   const usage = await usageOf(db, userId);
   if (usage.draftsLeft <= 0) return fail(`You've written today's ${OUTREACH_LIMITS.draftsPerDay} outreach drafts. You can write more tomorrow.`, 429);
@@ -119,6 +119,8 @@ async function draft(db: SupabaseClient, userId: string, business: Business, lea
     notes: (notesRes.data ?? []).map((n) => n.note as string),
     lead: { name: lead.name, category: categoryLabel(lead.category), town: lead.town },
     goal,
+    // Follow-up: how long ago the first email went out (from the pipeline).
+    followUpDays: followUp ? Math.max(1, Math.round((Date.now() - Date.parse(lead.emailed_at ?? new Date().toISOString())) / 86_400_000)) : null,
   });
   const ctx = { ownerFirstName: business.ownerName.split(/\s+/)[0], business: business.businessName, allowedNumbers, clientNames };
 

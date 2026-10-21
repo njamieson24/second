@@ -193,7 +193,8 @@ function SetupForm({ mode, existing, hasPlan, hasCatalog }: { mode: Mode; existi
     // Let the "All set" moment play before moving on.
     const linger = prefersReducedMotion() ? 1200 : 2600;
     const wait = Math.max(0, linger - (Date.now() - started));
-    setTimeout(() => router.push(mode === "launch" ? "/launch" : "/app"), wait);
+    // New owners see 3 businesses near them worth teaming up with (it skips itself if none).
+    setTimeout(() => router.push(existing ? (mode === "launch" ? "/launch" : "/app") : "/start/matches"), wait);
   }
 
   function next(e: React.FormEvent) {

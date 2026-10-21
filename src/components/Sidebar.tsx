@@ -8,7 +8,6 @@ import {
   Camera,
   ChartNoAxesColumn,
   LayoutDashboard,
-  Mail,
   Map,
   MessageCircle,
   Settings,
@@ -16,6 +15,8 @@ import {
   Users,
   type LucideIcon,
   Compass,
+  Handshake,
+  ListChecks,
 } from "lucide-react";
 import { useLoadedData, useRoadmap } from "@/lib/data";
 import { dayLabel } from "@/lib/dates";
@@ -27,33 +28,56 @@ import { ProgressBar } from "./ProgressBar";
 import { ThemeToggle } from "./ThemeToggle";
 import { useTour } from "./Tour";
 
-type NavItem = { label: string; href: string; icon: LucideIcon };
+export type NavItem = { label: string; href: string; icon: LucideIcon; badge?: "replies" };
 
+/**
+ * The app's pages. Phone: `bar` is the bottom bar (plus "More"), `more` is the More sheet.
+ * Computer: the sidebar shows both, in this order. Every page is reachable in both.
+ */
+export function navFor(mode: Mode): { bar: NavItem[]; more: NavItem[] } {
+  const launch = mode === "launch";
+  return {
+    bar: [
+      { label: "Home", href: launch ? "/launch" : "/app", icon: LayoutDashboard },
+      { label: "Partners", href: "/partners", icon: Handshake, badge: "replies" },
+      { label: "Chat", href: "/chat", icon: MessageCircle },
+      { label: "Money", href: launch ? "/launch/money" : "/app/money", icon: ChartNoAxesColumn },
+    ],
+    more: [
+      { label: "This Week", href: "/week", icon: ListChecks },
+      { label: "Calendar", href: "/calendar", icon: CalendarDays },
+      { label: "Content", href: "/content", icon: Camera },
+      ...(launch
+        ? [
+            { label: "Roadmap", href: "/launch/roadmap", icon: Map },
+            { label: "Brand kit", href: "/launch/brand", icon: Star },
+          ]
+        : [{ label: "Clients", href: "/app/clients", icon: Users }]),
+      { label: "Learn", href: "/learn", icon: Book },
+      { label: "Settings", href: "/settings", icon: Settings },
+    ],
+  };
+}
+
+/** Kept for anything that still lists all pages for a mode. */
 export const navItems: Record<Mode, NavItem[]> = {
-  launch: [
-    { label: "Launch plan", href: "/launch", icon: LayoutDashboard },
-    { label: "Chat with Second", href: "/chat", icon: MessageCircle },
-    { label: "Roadmap", href: "/launch/roadmap", icon: Map },
-    { label: "Calendar", href: "/calendar", icon: CalendarDays },
-    { label: "Money plan", href: "/launch/money", icon: ChartNoAxesColumn },
-    { label: "Brand kit", href: "/launch/brand", icon: Star },
-    { label: "Content", href: "/content", icon: Camera },
-    { label: "Outreach", href: "/outreach", icon: Mail },
-    { label: "Learn", href: "/learn", icon: Book },
-    { label: "Settings", href: "/settings", icon: Settings },
-  ],
-  running: [
-    { label: "Dashboard", href: "/app", icon: LayoutDashboard },
-    { label: "Calendar", href: "/calendar", icon: CalendarDays },
-    { label: "Chat with Second", href: "/chat", icon: MessageCircle },
-    { label: "Outreach", href: "/outreach", icon: Mail },
-    { label: "Money", href: "/app/money", icon: ChartNoAxesColumn },
-    { label: "Content", href: "/content", icon: Camera },
-    { label: "Clients", href: "/app/clients", icon: Users },
-    { label: "Learn", href: "/learn", icon: Book },
-    { label: "Settings", href: "/settings", icon: Settings },
-  ],
+  launch: [...navFor("launch").bar, ...navFor("launch").more],
+  running: [...navFor("running").bar, ...navFor("running").more],
 };
+
+/** Is this nav item the page we're on? */
+export const isActive = (pathname: string, href: string) => pathname === href || (href !== "/app" && href !== "/launch" && pathname.startsWith(`${href}/`));
+
+/** Blue count: partners who replied and are waiting on the owner. */
+export function ReplyBadge({ count, className = "" }: { count: number; className?: string }) {
+  if (!count) return null;
+  return (
+    <span className={`inline-flex min-w-5 items-center justify-center rounded-full bg-sky px-1.5 text-xs leading-5 font-semibold text-on-sky ${className}`}>
+      {count}
+      <span className="sr-only"> {count === 1 ? "reply" : "replies"} waiting</span>
+    </span>
+  );
+}
 
 export function LaunchModePill() {
   return (
@@ -74,7 +98,7 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const isLaunch = mode === "launch";
-  const { business, showSamples } = useLoadedData();
+  const { business, showSamples, partnerReplies } = useLoadedData();
   const roadmap = useRoadmap();
   const tour = useTour();
   const initial = business.ownerName.trim().charAt(0).toUpperCase() || "?";
@@ -93,9 +117,9 @@ export function Sidebar({
         </div>
       )}
 
-      <nav aria-label="Main" className="flex flex-col gap-1">
+      <nav aria-label="Main" className="flex flex-col gap-1" data-tour="nav-sidebar">
         {navItems[mode].map((item) => {
-          const active = pathname === item.href;
+          const active = isActive(pathname, item.href);
           const Icon = item.icon;
           return (
             <Link
@@ -104,11 +128,12 @@ export function Sidebar({
               onClick={onNavigate}
               aria-current={active ? "page" : undefined}
               className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-[15px] no-underline transition-colors ${
-                active ? "bg-ink-line font-medium text-on-panel" : "text-on-dark hover:bg-ink-2 hover:text-on-panel"
+                active ? "bg-mint/15 font-semibold text-panel-accent" : "text-on-dark hover:bg-ink-2 hover:text-on-panel"
               }`}
             >
-              <Icon size={20} strokeWidth={2} aria-hidden="true" className={active ? "text-panel-accent" : ""} />
+              <Icon size={20} strokeWidth={2} aria-hidden="true" />
               {item.label}
+              {item.badge === "replies" && <ReplyBadge count={partnerReplies} className="ml-auto" />}
             </Link>
           );
         })}

@@ -8,6 +8,7 @@ import { Chip } from "@/components/Chip";
 import { ComingSoon, EmptyState, SampleTag } from "@/components/EmptyStates";
 import { HeroCard } from "@/components/HeroCard";
 import { ThisWeek } from "@/components/ThisWeek";
+import { MatchesSection } from "@/components/partners/Matches";
 import { TourOffer } from "@/components/TourOffer";
 import { PageBody, PageHeader } from "@/components/PageHeader";
 import { ProgressBar } from "@/components/ProgressBar";
@@ -50,8 +51,6 @@ export default function LaunchHomePage() {
       />
 
       <TourOffer mode="launch" />
-
-      <ThisWeek />
 
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <HeroCard
@@ -158,6 +157,11 @@ export default function LaunchHomePage() {
           </Card>
         </div>
       </div>
+
+      {/* Launch: the plan comes first; partners are a strip under it. */}
+      <MatchesSection compact title="Your matches" />
+
+      <ThisWeek />
 
       <div className="grid grid-cols-1 gap-6 desk:grid-cols-3">
         <Card title="Your business so far">

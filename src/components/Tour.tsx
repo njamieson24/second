@@ -41,8 +41,11 @@ const GAP = 14; // space between it and the card
 function findTarget(step: TourStep): HTMLElement | null {
   if (!step.target) return null;
   const visible = (el: Element | null) => (el instanceof HTMLElement && el.getClientRects().length > 0 ? el : null);
-  if (step.target !== "page") {
-    const found = visible(document.querySelector(`main [data-tour="${step.target}"]`));
+  // Alternatives: the first one on screen. Nav targets live outside <main>; both modes' copies
+  // can be in the page (one hidden), so look at every match.
+  for (const name of step.target.split("|")) {
+    if (name === "page") break;
+    const found = [...document.querySelectorAll(`[data-tour="${name}"]`)].map(visible).find(Boolean);
     if (found) return found;
   }
   return visible(document.querySelector("main [data-tour-header]"));

@@ -15,8 +15,10 @@ import {
   milesBetween,
   OUTREACH_LIMITS,
   type CategoryId,
+  type DealTerms,
   type Lead,
   type LeadStatus,
+  type PartnerStage,
   type OutreachUsage,
   type RadiusMi,
 } from "./outreach";
@@ -49,7 +51,20 @@ export type LeadRow = {
   saved?: boolean | null;
   lat?: number | null;
   lon?: number | null;
+  stage?: PartnerStage | null;
+  emailed_at?: string | null;
+  follow_up_on?: string | null;
+  replied_at?: string | null;
+  deal_at?: string | null;
+  deal_type?: DealTerms["type"] | null;
+  deal_value?: number | string | null;
+  deal_variant_id?: string | null;
+  deal_note?: string | null;
 };
+
+/** Deal terms from a row (null when there's no deal type). */
+export const dealOf = (r: Pick<LeadRow, "deal_type" | "deal_value" | "deal_variant_id" | "deal_note">): DealTerms | null =>
+  r.deal_type ? { type: r.deal_type, value: r.deal_value === null || r.deal_value === undefined ? null : Number(r.deal_value), variantId: r.deal_variant_id ?? null, note: r.deal_note ?? null } : null;
 
 export const toLead = (r: LeadRow): Lead => ({
   id: r.id,
@@ -71,6 +86,14 @@ export const toLead = (r: LeadRow): Lead => ({
   draftBody: r.draft_body,
   emailCheckedAt: r.email_checked_at,
   saved: r.saved ?? true,
+  stage: r.stage ?? "found",
+  emailedAt: r.emailed_at ?? null,
+  followUpOn: r.follow_up_on ?? null,
+  repliedAt: r.replied_at ?? null,
+  dealAt: r.deal_at ?? null,
+  deal: dealOf(r),
+  lat: r.lat ?? null,
+  lon: r.lon ?? null,
 });
 
 export async function usageOf(db: SupabaseClient, userId: string): Promise<OutreachUsage> {
@@ -91,7 +114,7 @@ export async function usageOf(db: SupabaseClient, userId: string): Promise<Outre
 
 export type SearchInput = { town: string; state: string; category: CategoryId; hideChains: boolean; radiusMi: RadiusMi; fresh?: boolean };
 export type SearchOutcome =
-  | { ok: true; leads: Lead[]; reused: boolean; town: string }
+  | { ok: true; leads: Lead[]; reused: boolean; town: string; center: Point }
   | { ok: false; reason: "town" | "limit" | "busy" | "slow" | "setup"; message: string; status: number };
 
 /**
@@ -165,7 +188,7 @@ export async function runSearch(
       if (hidden.length) await db.from("outreach_leads").update({ saved: true }).in("id", hidden);
       for (const l of leads) l.saved = true;
     }
-    return { ok: true, leads, reused, town: label };
+    return { ok: true, leads, reused, town: label, center };
   };
 
   // Same town, kind and distance in the last 30 days? Reuse the saved results (no map call).

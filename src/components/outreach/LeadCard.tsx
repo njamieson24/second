@@ -188,7 +188,7 @@ export function LeadCard({
       {confirmRemove ? (
         <div role="group" aria-label="Remove this business?" className="flex flex-col gap-2.5 rounded-row bg-paper px-4 py-3">
           <p className="m-0 text-[15px]">
-            Remove <span className="font-semibold">{lead.name}</span> from your Outreach list?
+            Remove <span className="font-semibold">{lead.name}</span> from your Partners?
           </p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="dark" onClick={remove} disabled={busy !== null}>

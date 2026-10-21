@@ -46,6 +46,7 @@ export type TransactionRow = {
   tip?: number | string | null;
   event_id?: string | null;
   event_date?: string | null;
+  partner_lead_id?: string | null;
 };
 
 export function toBusiness(row: BusinessRow | null): Business | null {
@@ -115,6 +116,7 @@ export function toTransaction(t: TransactionRow): Transaction {
     ...(num(t.tip) ? { tip: num(t.tip) } : {}),
     ...(t.event_id ? { eventId: t.event_id } : {}),
     ...(t.event_date ? { eventDate: t.event_date } : {}),
+    ...(t.partner_lead_id ? { partnerLeadId: t.partner_lead_id } : {}),
   };
 }
 
@@ -134,6 +136,7 @@ export function transactionRow(userId: string, t: Transaction): TransactionRow {
     ...(t.variantId ? { variant_id: t.variantId } : {}),
     ...(t.unitPrice !== undefined ? { unit_price: t.unitPrice, quantity: t.quantity ?? 1, discount: t.discount ?? 0, tip: t.tip ?? 0 } : {}),
     ...(t.eventId ? { event_id: t.eventId, event_date: t.eventDate ?? t.date } : {}),
+    ...(t.partnerLeadId ? { partner_lead_id: t.partnerLeadId } : {}),
   };
 }
 

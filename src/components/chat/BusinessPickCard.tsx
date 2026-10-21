@@ -57,7 +57,7 @@ export function BusinessPickCard({ card, onChange }: { card: BusinessCard; onCha
     const r = await saveLeadToOutreach(card.leadId);
     setBusy(null);
     if (!r.ok) return setMessage(r.message);
-    setSavedNote(r.already ? "Already in your Outreach list" : "Saved to Outreach");
+    setSavedNote(r.already ? "Already in your Partners" : "Saved to Partners");
     onChange({ ...card, saved: true });
   }
 
@@ -136,14 +136,14 @@ export function BusinessPickCard({ card, onChange }: { card: BusinessCard; onCha
           </Button>
           {card.saved ? (
             <Link
-              href="/outreach"
+              href="/partners"
               className="inline-flex min-h-11 items-center gap-1.5 self-center rounded-full bg-mint-tint px-4 text-sm font-semibold text-mint-deep no-underline hover:underline"
             >
-              <Check size={14} strokeWidth={2.6} aria-hidden="true" /> {savedNote ?? "In your Outreach list"} · See it
+              <Check size={14} strokeWidth={2.6} aria-hidden="true" /> {savedNote ?? "In your Partners"} · See it
             </Link>
           ) : (
             <Button size="sm" variant="soft" weight="medium" onClick={save} disabled={busy !== null}>
-              {busy === "save" ? "Saving…" : "Save to Outreach"}
+              {busy === "save" ? "Saving…" : "Save to Partners"}
             </Button>
           )}
         </div>
